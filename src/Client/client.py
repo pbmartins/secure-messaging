@@ -133,13 +133,100 @@ def send_message():
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
-        print("All received messages: ")
-        for message in data['result'][0]:
-            print("\t" + message)
+        print("Message ID: " + data['result'][0])
+        print("\n\nReceipt ID: " + data['result'][1])
 
-        print("\n\nAll sent messages: ")
-        for message in data['result'][1]:
-            print("\t" + message)
+
+def receive_message():
+    if ss is None:
+        print("Socket not established")
+        return
+
+    message = {
+        'type': 'recv'
+        # security related fields
+    }
+
+    id = input("Message box ID: ")
+    while not len(id):
+        id = input("ERROR: You must insert a message box id.\nMessage box ID: ")
+    message['id'] = int(id)
+
+    id = input("Message ID: ")
+    while not len(id):
+        id = input("ERROR: You must insert a message id.\nMessage ID: ")
+    message['msg'] = int(id)
+
+    ss.send(json.dumps(message))
+    data = json.loads(ss.recv(BUFSIZE))
+    if 'error' in data:
+        print("ERROR: " + data['error'])
+    else:
+        print("Message Sender: " + data['result'][0])
+        print("\n\nMessage: " + data['result'][1])
+
+
+def receipt_message():
+    if ss is None:
+        print("Socket not established")
+        return
+
+    message = {
+        'type': 'receipt'
+        # security related fields
+    }
+
+    id = input("Message box ID of the receipt sender: ")
+    while not len(id):
+        id = input("ERROR: You must insert a message box id.\nMessage box ID of the receipt sender: ")
+    message['id'] = int(id)
+
+    id = input("Message ID: ")
+    while not len(id):
+        id = input("ERROR: You must insert a message id.\nMessage ID: ")
+    message['msg'] = int(id)
+
+    # TODO :
+    # receipt field contains a signature over the plaintext message received,
+    # calculated with the same credentials that the user uses to authenticate mes-
+    # sages to other users.
+    message['receipt'] = ""
+
+    ss.send(json.dumps(message))
+
+
+def message_status():
+    if ss is None:
+        print("Socket not established")
+        return
+
+    message = {
+        'type': 'status'
+        # security related fields
+    }
+
+    id = input("Receipt box ID: ")
+    while not len(id):
+        id = input("ERROR: You must insert a receipt box id.\nReceipt box ID: ")
+    message['id'] = int(id)
+
+    id = input("Message ID: ")
+    while not len(id):
+        id = input("ERROR: You must insert a message id.\nMessage ID: ")
+    message['msg'] = int(id)
+
+    ss.send(json.dumps(message))
+    data = json.loads(ss.recv(BUFSIZE))
+    if 'error' in data:
+        print("ERROR: " + data['error'])
+    else:
+        print("Message: " + data['result']['msg'])
+        print("\n\nAll receipts: ")
+        for receipt in data['result']['receipts']:
+            print("\tDate: " + receipt['data'])
+            print("\tReceipt sender ID: " + receipt['id'])
+            print("\tReceipt: " + receipt['receipt'])
+
 
 def main():
     """
@@ -161,7 +248,8 @@ def main():
         print("4 - [ALL] List all messages in a user's message box")
         print("5 - [SEND] Send a new message")
         print("6 - [RECV] Receive a message from a user's message box")
-        print("7 - [STATUS] Check the status of a previously sent message")
+        print("7 - [RECEIPT] Receipt sent after receiving and validating a message")
+        print("8 - [STATUS] Check the status of a previously sent message")
         print("0 - [EXIT] Exit client")
         op = int(input("Select an option: "))
 
@@ -172,16 +260,17 @@ def main():
         elif op == 2:
             list_message_boxes()
         elif op == 3:
-            create_user()
+            list_all_new_messages()
         elif op == 4:
-            create_user()
+            list_all_messages()
         elif op == 5:
-            create_user()
+            send_message()
         elif op == 6:
-            create_user()
+            receive_message()
         elif op == 7:
-            create_user()
+            receipt_message()
+        elif op == 8:
+            message_status()
 
     ss.close()
     return
-
