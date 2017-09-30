@@ -264,7 +264,8 @@ class ServerRegistry:
                 "Internal error, wrong message file name (" + msg + ") format!")
             sys.exit(2)
 
-        path = self.userReceiptBox(os.path.join(m.group(1), "_%s_%s_%d" % (uid, m.group(2), time.time() * 1000)))
+        path = self.userReceiptBox(os.path.join(
+            m.group(1), "_%s_%s_%d" % (uid, m.group(2), time.time() * 1000)))
 
         try:
             self.saveOnFile(path, receipt)

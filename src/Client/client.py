@@ -286,15 +286,17 @@ def message_status():
     ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
             + '\r\n'.encode('utf-8'))
     data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
+
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
         print("Message: " + data['result']['msg'])
         print("\nAll receipts: ")
         for receipt in data['result']['receipts']:
-            print("\tDate: " + receipt['data'])
+            print("\tDate: " + receipt['date'])
             print("\tReceipt sender ID: " + receipt['id'])
             print("\tReceipt: " + receipt['receipt'])
+            print("")
 
 
 def main():
