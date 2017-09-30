@@ -8,6 +8,7 @@ MAX_BUFSIZE = 64 * 1024
 
 sys.tracebacklimit = 30
 
+
 class Client:
     count = 0
 
@@ -40,8 +41,8 @@ class Client:
 
         self.bufin += data
         reqs = self.bufin.split(TERMINATOR)
-        print(reqs)
         self.bufin = reqs[-1]
+        print(reqs[:-1])
         return reqs[:-1]
 
     def sendResult(self, obj):

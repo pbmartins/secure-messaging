@@ -4,6 +4,7 @@ from server_registry import *
 from server_client import *
 import json
 
+
 class ServerActions:
     def __init__(self):
 
@@ -124,9 +125,9 @@ class ServerActions:
     def processSend(self, data, client):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
-        if not set(data.keys()).issuperset(set({'src', 'dst', 'msg', 'msg'})):
+        if not set(data.keys()).issuperset(set({'src', 'dst', 'msg', 'copy'})):
             log(logging.ERROR,
-                "Badly formated \"send\" message: " + json.dumps(data))
+                "Badly formatted \"send\" message: " + json.dumps(data))
             client.sendResult({"error": "wrong message format"})
 
         srcId = int(data['src'])
@@ -211,9 +212,9 @@ class ServerActions:
         fromId = int(data['id'])
         msg = str(data["msg"])
 
-        if(not self.registry.copyExists(fromId, msg)):
+        if not self.registry.copyExists(fromId, msg):
             log(logging.ERROR, "Unknown message for \"status\" request: " + json.dumps(data))
-            client.sendResult({"error", "wrong parameters"})
+            client.sendResult({"error": "wrong parameters"})
             return
 
         response = self.registry.getReceipts(fromId, msg)

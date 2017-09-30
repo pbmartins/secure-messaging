@@ -103,7 +103,7 @@ class Server:
         client = self.clients[s]
         data = None
         try:
-            data = s.recv(BUFSIZE)
+            data = s.recv(BUFSIZE).decode('utf-8')
             log(logging.DEBUG,
                 "Received data from %s. Message:\n%r" % (client, data))
         except:
@@ -125,7 +125,7 @@ class Server:
 
         client = self.clients[s]
         try:
-            sent = client.socket.send(client.bufout[:BUFSIZE])
+            sent = client.socket.send(client.bufout[:BUFSIZE].encode('utf-8'))
             log(logging.DEBUG, "Sent %d bytes to %s. Message:\n%r" %
                 (sent, client, client.bufout[:sent]))
             # leave remaining to be sent later

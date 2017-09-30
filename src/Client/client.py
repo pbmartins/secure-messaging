@@ -1,5 +1,6 @@
 from socket import *
 import json
+import base64
 
 ss = None
 uuid = None
@@ -15,19 +16,26 @@ MAX_BUFSIZE = 64 * 1024
 
 def create_user():
     global ss
+    global uuid
 
     if ss is None:
         print("Socket not established")
         return
 
-    uuid = int(input("UUID: "))
+    if uuid is None:
+        print("Cannot create a message box without an UUID")
+        return
+
     message = {
         'type': 'create',
         'uuid': uuid
         # security related fields
     }
-    ss.send((json.dumps(message)[:BUFSIZE]).encode('utf-8'))
-    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
+
+    ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
+            + '\r\n'.encode('utf-8'))
+    data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
+
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -46,18 +54,21 @@ def list_message_boxes():
         # security related fields
     }
 
-    id = input("User ID (optional): ")
-    if len(id):
-        message['id'] = int(id)
+    user_id = input("User ID (optional): ")
+    if len(user_id):
+        message['id'] = int(user_id)
 
-    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
-    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
+    ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
+            + '\r\n'.encode('utf-8'))
+    data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
+
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
-        print("User(s): ")
-        for user in data['result']:
-            print("\t" + user)
+        print("User UUID(s): ")
+        for i in range(0, len(data['result'])):
+            print(str.format("\tID: {:d} - UUID: {:d}",
+                             i + 1, data['result'][i]['uuid']))
 
 
 def list_all_new_messages():
@@ -72,12 +83,16 @@ def list_all_new_messages():
         # security related fields
     }
 
-    id = input("User ID (optional): ")
-    if len(id):
-        message['id'] = int(id)
+    while True:
+        try:
+            message['id'] = int(input("User ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid User ID")
 
-    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
-    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
+    ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
+            + '\r\n'.encode('utf-8'))
+    data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -98,12 +113,16 @@ def list_all_messages():
         # security related fields
     }
 
-    id = input("User ID (optional): ")
-    if len(id):
-        message['id'] = int(id)
+    while True:
+        try:
+            message['id'] = int(input("User ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid User ID")
 
-    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
-    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
+    ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
+            + '\r\n'.encode('utf-8'))
+    data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -128,23 +147,42 @@ def send_message():
         # security related fields
     }
 
-    id = input("Sender User ID: ")
-    while not len(id):
-        id = input("ERROR: You must insert a sender user id.\nSender User ID: ")
-    message['src'] = int(id)
+    while True:
+        try:
+            message['src'] = int(input("Sender User ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid User ID")
 
-    id = input("Receiver User ID: ")
-    while not len(id):
-        id = input("ERROR: You must insert a sender receiver id.\nReceiver User ID: ")
-    message['dst'] = int(id)
+    while True:
+        try:
+            message['dst'] = int(input("Receiver User ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid User ID")
 
-    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
-    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
+    # Read message
+    print("Message (two line breaks to send it):")
+    message['msg'] = ""
+    line = ""
+    while True:
+        last_line = line
+        line = input()
+        message['msg'] += line + "\n"
+        if not len(line) and not len(last_line):
+            break
+
+    message['msg'] = json.dumps(message['msg'])
+    message['copy'] = message['msg']
+
+    ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
+            + '\r\n'.encode('utf-8'))
+    data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
         print("Message ID: " + data['result'][0])
-        print("\n\nReceipt ID: " + data['result'][1])
+        print("Receipt ID: " + data['result'][1])
 
 
 def receive_message():
@@ -159,23 +197,28 @@ def receive_message():
         # security related fields
     }
 
-    id = input("Message box ID: ")
-    while not len(id):
-        id = input("ERROR: You must insert a message box id.\nMessage box ID: ")
-    message['id'] = int(id)
+    while True:
+        try:
+            message['id'] = int(input("Message box's User ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid User ID")
 
-    id = input("Message ID: ")
-    while not len(id):
-        id = input("ERROR: You must insert a message id.\nMessage ID: ")
-    message['msg'] = int(id)
+    while True:
+        try:
+            message['msg'] = str(input("Message ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid message ID")
 
-    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
-    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
+    ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
+            + '\r\n'.encode('utf-8'))
+    data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
-        print("Message Sender: " + data['result'][0])
-        print("\n\nMessage: " + data['result'][1])
+        print("Message Sender ID: " + data['result'][0])
+        print("Message: " + data['result'][1])
 
 
 def receipt_message():
@@ -190,15 +233,19 @@ def receipt_message():
         # security related fields
     }
 
-    id = input("Message box ID of the receipt sender: ")
-    while not len(id):
-        id = input("ERROR: You must insert a message box id.\nMessage box ID of the receipt sender: ")
-    message['id'] = int(id)
+    while True:
+        try:
+            message['id'] = int(input("Receipts box's User ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid User ID")
 
-    id = input("Message ID: ")
-    while not len(id):
-        id = input("ERROR: You must insert a message id.\nMessage ID: ")
-    message['msg'] = int(id)
+    while True:
+        try:
+            message['msg'] = str(input("Message ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid message ID")
 
     # TODO :
     # receipt field contains a signature over the plaintext message received,
@@ -206,7 +253,8 @@ def receipt_message():
     # sages to other users.
     message['receipt'] = ""
 
-    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
+    ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
+            + '\r\n'.encode('utf-8'))
 
 
 def message_status():
@@ -221,23 +269,28 @@ def message_status():
         # security related fields
     }
 
-    id = input("Receipt box ID: ")
-    while not len(id):
-        id = input("ERROR: You must insert a receipt box id.\nReceipt box ID: ")
-    message['id'] = int(id)
+    while True:
+        try:
+            message['id'] = int(input("Receipts box's User ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid User ID")
 
-    id = input("Message ID: ")
-    while not len(id):
-        id = input("ERROR: You must insert a message id.\nMessage ID: ")
-    message['msg'] = int(id)
+    while True:
+        try:
+            message['msg'] = str(input("Message ID: "))
+            break
+        except ValueError:
+            print("ERROR: Invalid message ID")
 
-    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
-    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
+    ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
+            + '\r\n'.encode('utf-8'))
+    data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
         print("Message: " + data['result']['msg'])
-        print("\n\nAll receipts: ")
+        print("\nAll receipts: ")
         for receipt in data['result']['receipts']:
             print("\tDate: " + receipt['data'])
             print("\tReceipt sender ID: " + receipt['id'])
@@ -251,6 +304,7 @@ def main():
     """
 
     global ss
+    global uuid
 
     ss = socket(AF_INET, SOCK_STREAM)
     ss.connect((HOST, 8080))
@@ -259,11 +313,14 @@ def main():
     if len(uuid_read):
         uuid = int(uuid_read)
 
+    print(uuid)
+
     while True:
+        print("")
         print("OPTIONS")
         print("1 - [CREATE] Create a new user message box")
         print("2 - [LIST] List all user client boxes")
-        print("3 - [NEW] List all new message boxes")
+        print("3 - [NEW] List all new messages in a user's message box")
         print("4 - [ALL] List all messages in a user's message box")
         print("5 - [SEND] Send a new message")
         print("6 - [RECV] Receive a message from a user's message box")
@@ -271,6 +328,7 @@ def main():
         print("8 - [STATUS] Check the status of a previously sent message")
         print("0 - [EXIT] Exit client")
         op = int(input("Select an option: "))
+        print("")
 
         if op == 0:
             break
