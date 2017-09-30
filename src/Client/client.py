@@ -14,6 +14,8 @@ MAX_BUFSIZE = 64 * 1024
 
 
 def create_user():
+    global ss
+
     if ss is None:
         print("Socket not established")
         return
@@ -24,8 +26,8 @@ def create_user():
         'uuid': uuid
         # security related fields
     }
-    ss.send(json.dumps(message))
-    data = json.loads(ss.recv(BUFSIZE))
+    ss.send((json.dumps(message)[:BUFSIZE]).encode('utf-8'))
+    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -33,6 +35,8 @@ def create_user():
 
 
 def list_message_boxes():
+    global ss
+
     if ss is None:
         print("Socket not established")
         return
@@ -46,8 +50,8 @@ def list_message_boxes():
     if len(id):
         message['id'] = int(id)
 
-    ss.send(json.dumps(message))
-    data = json.loads(ss.recv(BUFSIZE))
+    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
+    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -57,6 +61,8 @@ def list_message_boxes():
 
 
 def list_all_new_messages():
+    global ss
+
     if ss is None:
         print("Socket not established")
         return
@@ -70,8 +76,8 @@ def list_all_new_messages():
     if len(id):
         message['id'] = int(id)
 
-    ss.send(json.dumps(message))
-    data = json.loads(ss.recv(BUFSIZE))
+    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
+    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -81,6 +87,8 @@ def list_all_new_messages():
 
 
 def list_all_messages():
+    global ss
+
     if ss is None:
         print("Socket not established")
         return
@@ -94,8 +102,8 @@ def list_all_messages():
     if len(id):
         message['id'] = int(id)
 
-    ss.send(json.dumps(message))
-    data = json.loads(ss.recv(BUFSIZE))
+    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
+    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -109,6 +117,8 @@ def list_all_messages():
 
 
 def send_message():
+    global ss
+
     if ss is None:
         print("Socket not established")
         return
@@ -128,8 +138,8 @@ def send_message():
         id = input("ERROR: You must insert a sender receiver id.\nReceiver User ID: ")
     message['dst'] = int(id)
 
-    ss.send(json.dumps(message))
-    data = json.loads(ss.recv(BUFSIZE))
+    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
+    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -138,6 +148,8 @@ def send_message():
 
 
 def receive_message():
+    global ss
+
     if ss is None:
         print("Socket not established")
         return
@@ -157,8 +169,8 @@ def receive_message():
         id = input("ERROR: You must insert a message id.\nMessage ID: ")
     message['msg'] = int(id)
 
-    ss.send(json.dumps(message))
-    data = json.loads(ss.recv(BUFSIZE))
+    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
+    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -167,6 +179,8 @@ def receive_message():
 
 
 def receipt_message():
+    global ss
+
     if ss is None:
         print("Socket not established")
         return
@@ -192,10 +206,12 @@ def receipt_message():
     # sages to other users.
     message['receipt'] = ""
 
-    ss.send(json.dumps(message))
+    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
 
 
 def message_status():
+    global ss
+
     if ss is None:
         print("Socket not established")
         return
@@ -215,8 +231,8 @@ def message_status():
         id = input("ERROR: You must insert a message id.\nMessage ID: ")
     message['msg'] = int(id)
 
-    ss.send(json.dumps(message))
-    data = json.loads(ss.recv(BUFSIZE))
+    ss.send(((json.dumps(message))[:BUFSIZE]).encode('utf-8'))
+    data = json.loads(((ss.recv(BUFSIZE)).split(TERMINATOR)[:-1]).decode('utf-8'))
     if 'error' in data:
         print("ERROR: " + data['error'])
     else:
@@ -233,6 +249,9 @@ def main():
     Show main menu.
     :return: 
     """
+
+    global ss
+
     ss = socket(AF_INET, SOCK_STREAM)
     ss.connect((HOST, 8080))
 
@@ -274,3 +293,7 @@ def main():
 
     ss.close()
     return
+
+
+if __name__ == "__main__":
+    main()

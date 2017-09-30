@@ -12,10 +12,10 @@ import json
 import sys
 import time
 import logging
-from Server.log import *
-from Server.server_client import *
-from Server.server_registry import *
-from Server.server_actions import *
+from log import *
+from server_client import *
+from server_registry import *
+from server_actions import *
 
 # Server address
 HOST = ""   # All available interfaces
@@ -177,8 +177,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         PORT = int(sys.argv[1])
 
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, formatter=logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s'))
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format=
+        '%(asctime)s - %(levelname)s - %(message)s')
 
     serv = None
     while True:
