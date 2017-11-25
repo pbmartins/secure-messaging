@@ -39,6 +39,31 @@ class X509Certificates:
         self.certs = {}
         self.store = crypto.X509Store()
 
+        self.import_certs()
+
+    def import_certs(self):
+        files = [f for f in os.listdir('./CCCerts')]
+
+        for f_name in files:
+            if f_name.split('.')[1] not in ['der', 'cer', 'crt']:
+                continue
+
+            mode = 'rb' if '.cer' in f_name else 'r'
+            f = open('./CCCerts/' + f_name, mode)
+            if mode == 'r':
+                cert = crypto.X509.from_cryptography(
+                    x509.load_pem_x509_certificate(f.read().encode(),
+                                                   default_backend()))
+            else:
+                cert = crypto.X509.from_cryptography(
+                    x509.load_der_x509_certificate(f.read(), default_backend()))
+
+            if cert.get_subject().commonName not in self.certs.keys():
+                self.certs[cert.get_subject().commonName] = cert
+
+        for subject in self.certs.keys():
+            self.store.add_cert(self.certs[subject])
+
     def check_expiration_or_revoked(self, cert):
         # Check time validity
         if cert.has_expired():
@@ -72,9 +97,7 @@ class X509Certificates:
         c = cert
         # Check if all certificates in the chain are valid
         while True:
-            if c.get_issuer().commonName not in self.certs:
-                # TODO: Download certificate (HOW???)
-                pass
+            assert c.get_issuer().commonName in self.certs
 
             if c.get_issuer().commonName == c.get_subject().commonName:
                 break

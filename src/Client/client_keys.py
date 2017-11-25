@@ -18,8 +18,8 @@ def get_hash_algorithm(algorithm):
         'SHA384': hashes.SHA384()
     }
 
-    return hash_algorithms[algorithm] \
-        if algorithm in hash_algorithms.keys() else None
+    assert algorithm in hash_algorithms.keys()
+    return hash_algorithms[algorithm]
 
 
 def get_aes_mode(mode, iv):
@@ -28,17 +28,18 @@ def get_aes_mode(mode, iv):
         'CTR': modes.CTR(iv)
     }
 
-    return cipher_modes[mode] if mode in cipher_modes.keys() else None
+    assert mode in cipher_modes.keys()
+    return cipher_modes[mode]
 
 
-def get_padding_algorithm(algorithm):
+def get_padding_algorithm(padding_mode):
     paddings = {
         'OAEP': padding.OAEP,
         'PKCS1v15': padding.OAEP
     }
 
-    return paddings[algorithm] if algorithm in paddings.keys() else None
-
+    assert padding_mode in paddings.keys()
+    return paddings[padding_mode]
 
 
 def generate_rsa_keypair(size):
@@ -55,8 +56,7 @@ def generate_rsa_keypair(size):
 
 
 def generate_aes_cipher(key, mode, iv=None):
-    if len(key) * 8 not in [192, 256]:
-        return None
+    assert len(key) * 8 in [192, 256]
 
     iv = os.urandom(16) if iv is None else iv
     cipher_mode = get_aes_mode(mode, iv)
@@ -66,16 +66,11 @@ def generate_aes_cipher(key, mode, iv=None):
 
 
 def derive_key(password, length, hash_algorithm, salt):
-    if password is None:
-        return None
-
-    if length * 8 not in [192, 256]:
-        return None
+    assert password is not None
+    assert length * 8 in [192, 256]
+    assert salt is not None
 
     h = get_hash_algorithm(hash_algorithm)
-
-    if salt is None:
-        return None
 
     info = b"hkdf-password-derivation"
     hkdf = HKDF(
@@ -93,8 +88,7 @@ def derive_key(password, length, hash_algorithm, salt):
 
 
 def digest_payload(payload, hash_algorithm):
-    if payload is None:
-        return None
+    assert payload is not None
 
     h = get_hash_algorithm(hash_algorithm)
 
@@ -105,6 +99,10 @@ def digest_payload(payload, hash_algorithm):
 
     return hashed_payload
 
+"""
+    Key exchange operations
+"""
+
 
 def generate_ecdh_keypair():
     private_key = ec.generate_private_key(ec.SECP384R1(), default_backend())
@@ -113,11 +111,15 @@ def generate_ecdh_keypair():
 
 def derive_key_from_ecdh(private_key, peer_pubkey, priv_salt, pub_salt,
                          length, hash_algorithm):
-    if private_key is None or peer_pubkey is None:
-        return None
+    assert private_key is not None and peer_pubkey is not None
 
     shared_secret = private_key.exchange(ec.ECDH(), peer_pubkey)
     return derive_key(shared_secret, length, hash_algorithm, priv_salt+pub_salt)
+
+
+"""
+    File operations
+"""
 
 
 def save_to_ciphered_file(password, length, hash_algorithm,

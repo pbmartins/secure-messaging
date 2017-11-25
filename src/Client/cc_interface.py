@@ -54,10 +54,6 @@ def get_pub_key_certificate():
     return cert
 
 
-def validate_certificate(cert):
-    pass
-
-
 def sign(payload):
     pin = getpass.getpass("Signature PIN: ")
 
