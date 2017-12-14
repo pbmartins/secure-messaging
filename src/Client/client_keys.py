@@ -8,8 +8,8 @@ import os
 import base64
 
 
-def get_nounce(byte_size):
-    return os.urandom(byte_size)
+def get_nounce(byte_size, message, hash_algorithm):
+    return digest_payload(message + os.urandom(byte_size), hash_algorithm) 
 
 
 def get_hash_algorithm(algorithm):
@@ -110,11 +110,17 @@ def generate_ecdh_keypair():
 
 
 def derive_key_from_ecdh(private_key, peer_pubkey, priv_salt, pub_salt,
-                         length, hash_algorithm):
+                         length, hash_algorithm, number_of_derivations):
     assert private_key is not None and peer_pubkey is not None
+    assert number_of_derivations > 0
 
     shared_secret = private_key.exchange(ec.ECDH(), peer_pubkey)
-    return derive_key(shared_secret, length, hash_algorithm, priv_salt+pub_salt)
+    key = derive_key(shared_secret, length, hash_algorithm, priv_salt+pub_salt)
+
+    for i in range(1, number_of_derivations):
+        key = derive_key(key, length, hash_algorithm, priv_salt+pub_salt)
+
+    return key
 
 
 """

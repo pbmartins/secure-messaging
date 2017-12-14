@@ -40,7 +40,7 @@ class ClientSecure:
     def encapsulate_insecure_message(self):
         self.priv_value, self.pub_value = generate_ecdh_keypair()
         salt = os.urandom(16)
-        nounce = get_nounce(16)
+        nounce = get_nounce(16, b'', self.cipher_suite['sha']['size'])
         self.nounces += [nounce]
 
         message = {
@@ -59,7 +59,8 @@ class ClientSecure:
         # Values used in key exchange
         self.priv_value, self.pub_value = generate_ecdh_keypair()
         salt = os.urandom(16)
-        nounce = get_nounce(16)
+        nounce = get_nounce(16, payload.encode(), 
+                self.cipher_suite['sha']['size'])
         self.nounces += [nounce]
 
         # Derive AES key and cipher payload
@@ -119,7 +120,8 @@ class ClientSecure:
                                          self.cipher_suite['rsa']['padding'])
 
         # Generate nounce to verify message readings
-        nounce = get_nounce(16)
+        nounce = get_nounce(16, message.encode(), 
+                self.cipher_suite['sha']['size'])
         payload = nounce + b'\n\t' + base64.b64encode(self.cipher_spec) \
                   + b'\n\t' + ciphered_aes_iv_key + b'\n\t' + ciphered_message
 
