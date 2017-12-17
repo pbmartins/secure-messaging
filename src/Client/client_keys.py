@@ -1,9 +1,8 @@
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import rsa, padding, ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives.asymmetric import ec
 import os
 import base64
 
@@ -174,6 +173,12 @@ def read_from_ciphered_file(password, length, hash_algorithm, aes_mode, uuid):
 """
     Assymetric operations
 """
+
+
+def rsa_generate_keypair(length):
+    assert length in [1024, 2048]
+    private_key = rsa.generate_private_key(65537, length, default_backend())
+    return private_key, private_key.public_key()
 
 
 def rsa_sign(private_key, payload, hash_algorithm):

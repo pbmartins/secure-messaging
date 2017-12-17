@@ -1,19 +1,24 @@
 from src.Client.client_keys import *
 from src.Client import cc_interface as cc
+from src.Client import certificates
+from cryptography.exceptions import *
 import os
 import base64
 
 
 class ClientSecure:
-    # TODO: Verify if the user can send multiple messagens without receiving
-    # TODO: an answer and how it impacts the flow of DH Key exchange
-    def __init__(self, cipher_spec):
+    def __init__(self, cipher_spec, private_key, public_key):
         self.cipher_spec = cipher_spec
         self.cipher_suite = {}
-        self.priv_value = None
-        self.pub_value = None
+        self.number_of_hash_derivations = 1
+        self.salt_list = []
         self.nounces = []
         self.cc_cert = cc.get_pub_key_certificate()
+        self.certificates = certificates.X509Certificates()
+
+        self.priv_value, self.pub_value = generate_ecdh_keypair()
+        self.private_key = private_key
+        self.public_key = public_key
 
         self.get_cipher_suite()
 
@@ -57,8 +62,8 @@ class ClientSecure:
 
     def encapsulate_secure_message(self, payload, peer_pub_value, peer_salt):
         # Values used in key exchange
-        self.priv_value, self.pub_value = generate_ecdh_keypair()
         salt = os.urandom(16)
+        self.salt_list += [salt]
         nounce = get_nounce(16, payload.encode(), 
                 self.cipher_suite['sha']['size'])
         self.nounces += [nounce]
@@ -70,8 +75,11 @@ class ClientSecure:
             salt,
             peer_salt,
             self.cipher_suite['aes']['key_size'],
-            self.cipher_suite['sha']['size']
+            self.cipher_suite['sha']['size'],
+            self.number_of_hash_derivations,
         )
+        self.number_of_hash_derivations += 1
+
         aes_cipher, aes_iv = generate_aes_cipher(
             aes_key, self.cipher_suite['aes']['mode'])
 
@@ -102,7 +110,51 @@ class ClientSecure:
         return message
 
     def uncapsulate_secure_message(self, message):
-        pass
+        assert message['cipher_spec'] == self.cipher_spec
+
+        # Verify signature and certificate validity
+        assert self.certificates.validate_cert(message['certificate'])
+        try:
+            message['certificate'].get_pubkey().to_cryptography_key().verify(
+                message['signature'],
+                message['payload'],
+                self.cipher_suite['rsa']['padding'],
+                self.cipher_suite['sha']['size']
+            )
+        except InvalidSignature:
+            return "Invalid signature"
+
+        # Check if it corresponds to a previously sent message
+        if not message['payload']['nounce'] in self.nounces:
+            return "Message not a response to a previously sent message"
+
+        self.nounces.remove(message['payload']['nounce'])
+
+        # Derive AES key and decipher payload
+        salt_idx = self.number_of_hash_derivations
+        self.number_of_hash_derivations = 1
+
+        aes_key = derive_key_from_ecdh(
+            self.priv_value,
+            message['payload']['secdata']['dhpubvalue'],
+            self.salt_list[salt_idx],
+            message['payload']['secdata']['salt'],
+            self.cipher_suite['aes']['key_size'],
+            self.cipher_suite['sha']['size'],
+            self.number_of_hash_derivations,
+        )
+
+        aes_cipher, aes_iv = generate_aes_cipher(
+            aes_key,
+            self.cipher_suite['aes']['mode'],
+            message['payload']['secdata']['iv']
+        )
+
+        decryptor = aes_cipher.decryptor()
+        deciphered_payload = decryptor.update(message['payload']['message']) \
+                             + decryptor.finalize()
+
+        return deciphered_payload
 
     def cipher_message_to_user(self, message, peer_rsa_pubkey):
         # Cipher payload
@@ -115,21 +167,63 @@ class ClientSecure:
 
         # Cipher AES key and IV
         aes_iv_key = aes_iv + aes_key
-        ciphered_aes_iv_key = rsa_cipher(peer_rsa_pubkey, aes_iv_key,
-                                         self.cipher_suite['sha']['size'],
-                                         self.cipher_suite['rsa']['padding'])
+        ciphered_aes_iv_key = rsa_cipher(
+            peer_rsa_pubkey,
+            aes_iv_key,
+            self.cipher_suite['sha']['size'],
+            self.cipher_suite['rsa']['padding']
+        )
 
         # Generate nounce to verify message readings
         nounce = get_nounce(16, message.encode(), 
                 self.cipher_suite['sha']['size'])
-        payload = nounce + b'\n\t' + base64.b64encode(self.cipher_spec) \
-                  + b'\n\t' + ciphered_aes_iv_key + b'\n\t' + ciphered_message
+        payload = {
+            'payload': {
+                'message': ciphered_message,
+                'nounce': nounce,
+                'key_iv': ciphered_aes_iv_key
+            },
+            'signature': None,
+            'cipher_spec': self.cipher_spec
+        }
 
         # Sign payload
-        signature = cc.sign(payload)
-        payload += b'\n\t\n\t' + signature
+        signature = cc.sign(payload['payload'])
+        payload['signature'] = signature
 
         return payload
 
-    def decipher_message_from_user(self, message, peer_rsa_pubkey):
-        pass
+    def decipher_message_from_user(self, payload, peer_certificate):
+        assert payload['cipher_spec'] == self.cipher_spec
+
+        # Verify signature and certificate validity
+        assert self.certificates.validate_cert(peer_certificate)
+        try:
+            peer_certificate.get_pubkey().to_cryptography_key().verify(
+                payload['signature'],
+                payload['payload'],
+                self.cipher_suite['rsa']['padding'],
+                self.cipher_suite['sha']['size']
+            )
+        except InvalidSignature:
+            return "Invalid signature"
+
+        # Decipher AES key and IV
+        aes_iv_key = rsa_decipher(
+            self.private_key,
+            payload['payload']['key_iv'],
+            self.cipher_suite['sha']['size'],
+            self.cipher_suite['rsa']['padding']
+        )
+        aes_iv = aes_iv_key[:16]
+        aes_key = aes_iv_key[16:]
+
+        # Decipher payload
+        aes_cipher, aes_iv = generate_aes_cipher(
+            aes_key, self.cipher_suite['aes']['mode'], aes_iv)
+
+        decryptor = aes_cipher.decryptor()
+        deciphered_message = decryptor.update(payload['payload']['message']) \
+                             + decryptor.finalize()
+
+        return deciphered_message

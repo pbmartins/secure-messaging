@@ -91,9 +91,8 @@ class X509Certificates:
         return cert.get_serial_number() not in revoked_serials
 
 
-    # TODO: How to get issuer certificates
     # TODO: Check all the chain
-    def valid_cert(self, cert):
+    def validate_cert(self, cert):
         c = cert
         # Check if all certificates in the chain are valid
         while True:
