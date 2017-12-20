@@ -64,6 +64,7 @@ class X509Certificates:
         for subject in self.certs.keys():
             self.store.add_cert(self.certs[subject])
 
+    # TODO: Check CRL date periodically
     def check_expiration_or_revoked(self, cert):
         # Check time validity
         if cert.has_expired():

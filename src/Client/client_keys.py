@@ -13,8 +13,8 @@ def get_nounce(byte_size, message, hash_algorithm):
 
 def get_hash_algorithm(algorithm):
     hash_algorithms = {
-        'SHA256': hashes.SHA256(),
-        'SHA384': hashes.SHA384()
+        256: hashes.SHA256(),
+        384: hashes.SHA384()
     }
 
     assert algorithm in hash_algorithms.keys()
@@ -42,8 +42,7 @@ def get_padding_algorithm(padding_mode):
 
 
 def generate_rsa_keypair(size):
-    if size != 2048:
-        return None
+    assert size in [1024, 2048]
 
     private_key = rsa.generate_private_key(
         public_exponent=65537,
@@ -130,7 +129,7 @@ def derive_key_from_ecdh(private_key, peer_pubkey, priv_salt, pub_salt,
 def save_to_ciphered_file(password, length, hash_algorithm,
                           aes_mode, payload, uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    f = open(os.path.join(dir_path, 'keys/' + uuid + '_rsa'), 'wb')
+    f = open(os.path.join(dir_path, 'keys/' + uuid + '/priv_rsa'), 'wb')
 
     # Derive key from password and generate AES cipher object
     salt = os.urandom(16)
@@ -148,9 +147,17 @@ def save_to_ciphered_file(password, length, hash_algorithm,
     f.write(file_payload)
 
 
+def save_to_file(payload, uuid):
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    f = open(os.path.join(dir_path, 'keys/' + uuid + '/pub_rsa'), 'wb')
+
+    # Save to file
+    f.write(payload)
+
+
 def read_from_ciphered_file(password, length, hash_algorithm, aes_mode, uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    f = open(os.path.join(dir_path, 'keys/' + uuid + '_rsa'), 'rb')
+    f = open(os.path.join(dir_path, 'keys/' + uuid + '/priv_rsa'), 'rb')
     file_payload = f.read()
 
     info = file_payload.split(b'\n\n')
@@ -167,6 +174,15 @@ def read_from_ciphered_file(password, length, hash_algorithm, aes_mode, uuid):
     # Decipher payload
     decryptor = cipher.decryptor()
     payload = decryptor.update(ciphered_payload) + decryptor.finalize()
+    return payload
+
+
+def read_from_file(uuid):
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    f = open(os.path.join(dir_path, 'keys/' + uuid + '/pub_rsa'), 'rb')
+
+    # Save to file
+    payload = f.read()
     return payload
 
 

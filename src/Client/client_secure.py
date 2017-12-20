@@ -7,28 +7,14 @@ import base64
 
 
 class ClientSecure:
-    def __init__(self, cipher_spec, private_key, public_key):
-        self.cipher_spec = cipher_spec
-        self.cipher_suite = {}
-        self.number_of_hash_derivations = 1
-        self.salt_list = []
-        self.nounces = []
-        self.cc_cert = cc.get_pub_key_certificate()
-        self.certificates = certificates.X509Certificates()
-
-        self.priv_value, self.pub_value = generate_ecdh_keypair()
-        self.private_key = private_key
-        self.public_key = public_key
-
-        self.get_cipher_suite()
-
-    def get_cipher_suite(self):
-        specs = self.cipher_spec.split('-')
+    @staticmethod
+    def get_cipher_suite(cipher_spec):
+        specs = cipher_spec.split('-')
         aes = specs[1].split('_')
         rsa = specs[2].split('_')
         hash = specs[3]
-        
-        self.cipher_suite = {
+
+        cipher_suite = {
             'aes': {
                 'key_size': int(aes[0][3:]),
                 'mode': aes[1]
@@ -41,6 +27,22 @@ class ClientSecure:
                 'size': hash[3:]
             }
         }
+        return cipher_suite
+
+    def __init__(self, cipher_spec, private_key, public_key):
+        self.cipher_spec = cipher_spec
+        self.cipher_suite = {}
+        self.number_of_hash_derivations = 1
+        self.salt_list = []
+        self.nounces = []
+        self.cc_cert = cc.get_pub_key_certificate()
+        self.certificates = certificates.X509Certificates()
+
+        self.priv_value, self.pub_value = generate_ecdh_keypair()
+        self.peer_pub_value = None
+        self.peer_salt = None
+        self.private_key = private_key
+        self.public_key = public_key
 
     def encapsulate_insecure_message(self):
         self.priv_value, self.pub_value = generate_ecdh_keypair()
@@ -60,7 +62,7 @@ class ClientSecure:
 
         return message
 
-    def encapsulate_secure_message(self, payload, peer_pub_value, peer_salt):
+    def encapsulate_secure_message(self, payload):
         # Values used in key exchange
         salt = os.urandom(16)
         self.salt_list += [salt]
@@ -71,9 +73,9 @@ class ClientSecure:
         # Derive AES key and cipher payload
         aes_key = derive_key_from_ecdh(
             self.priv_value,
-            peer_pub_value,
+            self.peer_pub_value,
             salt,
-            peer_salt,
+            self.peer_salt,
             self.cipher_suite['aes']['key_size'],
             self.cipher_suite['sha']['size'],
             self.number_of_hash_derivations,
@@ -133,12 +135,14 @@ class ClientSecure:
         # Derive AES key and decipher payload
         salt_idx = self.number_of_hash_derivations
         self.number_of_hash_derivations = 1
+        self.peer_pub_value = message['payload']['secdata']['dhpubvalue']
+        self.peer_salt = message['payload']['secdata']['salt']
 
         aes_key = derive_key_from_ecdh(
             self.priv_value,
-            message['payload']['secdata']['dhpubvalue'],
+            self.peer_pub_value,
             self.salt_list[salt_idx],
-            message['payload']['secdata']['salt'],
+            self.peer_salt,
             self.cipher_suite['aes']['key_size'],
             self.cipher_suite['sha']['size'],
             self.number_of_hash_derivations,
