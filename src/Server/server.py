@@ -12,10 +12,12 @@ import json
 import sys
 import time
 import logging
-from log import *
-from server_client import *
-from server_registry import *
-from server_actions import *
+from src.Server.log import *
+from src.Server.server_client import *
+from src.Server.server_registry import *
+from src.Server.server_actions import *
+from src.Client.cipher_utils import *
+from src.Server.certificates import *
 
 # Server address
 HOST = ""   # All available interfaces
@@ -38,6 +40,7 @@ class Server:
 
         self.registry = ServerRegistry()
         self.server_actions = ServerActions()
+        self.certificates = X509Certificates(self.registry.users)
 
         # clients to manage (indexed by socket and by name):
         self.clients = {}       # clients (key is socket)
@@ -171,16 +174,16 @@ class Server:
                 self.delClient(s)
 
 
-
+serv = None
 
 if __name__ == "__main__":
+    global serv
     if len(sys.argv) > 1:
         PORT = int(sys.argv[1])
 
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format=
         '%(asctime)s - %(levelname)s - %(message)s')
 
-    serv = None
     while True:
         try:
             log(logging.INFO, "Starting Secure IM Server v1.0")

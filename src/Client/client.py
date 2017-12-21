@@ -1,11 +1,12 @@
 from socket import *
 from src.Client.cc_interface import *
-from src.Client.client_keys import *
+from src.Client.cipher_utils import *
 from src.Client.client_secure import *
 import json
 import getpass
 import base64
 import os
+import time
 
 # Server address
 HOST = ""   # All available interfaces
@@ -53,10 +54,10 @@ class Client:
         self.secure = None
         self.cc_certificate = None
 
-    def send_message(self, message):
+    def send_payload(self, message):
         self.ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
                 + '\r\n'.encode('utf-8'))
-        data = json.loads(ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
+        data = json.loads(self.ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
         return data
 
     def login(self):
@@ -90,7 +91,7 @@ class Client:
 
             # Initialize session with the server
             self.secure = ClientSecure(cipher_suite, priv_key, pub_key)
-            data = self.send_message(self.secure.encapsulate_insecure_message())
+            data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
             # Create user account
@@ -111,7 +112,7 @@ class Client:
 
             # Initialize session with the server
             self.secure = ClientSecure(cipher_suite, priv_key, pub_key)
-            data = self.send_message(self.secure.encapsulate_insecure_message())
+            data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
     def create_user(self):
@@ -125,7 +126,7 @@ class Client:
             }
         }
 
-        data = self.send_message(self.secure.encapsulate_secure_message(payload))
+        data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
@@ -143,8 +144,7 @@ class Client:
         if len(user_id):
             payload['id'] = int(user_id)
 
-        data = self.send_message(
-            self.secure.encapsulate_secure_message(payload))
+        data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
@@ -167,8 +167,7 @@ class Client:
             except ValueError:
                 print("ERROR: Invalid User ID")
 
-        data = self.send_message(
-            self.secure.encapsulate_secure_message(payload))
+        data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
@@ -190,8 +189,7 @@ class Client:
             except ValueError:
                 print("ERROR: Invalid User ID")
 
-        data = self.send_message(
-            self.secure.encapsulate_secure_message(payload))
+        data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
@@ -206,41 +204,51 @@ class Client:
                 print("\t" + message)
 
     def send_message(self):
-        message = {
+        payload = {
             'type': 'send'
-            # security related fields
         }
 
         while True:
             try:
-                message['src'] = int(input("Sender User ID: "))
+                payload['src'] = int(input("Sender User ID: "))
                 break
             except ValueError:
                 print("ERROR: Invalid User ID")
 
         while True:
             try:
-                message['dst'] = int(input("Receiver User ID: "))
+                payload['dst'] = int(input("Receiver User ID: "))
                 break
             except ValueError:
                 print("ERROR: Invalid User ID")
 
         # Read message
         print("Message (two line breaks to send it):")
-        message['msg'] = ""
+        payload['msg'] = ""
         line = ""
         while True:
             last_line = line
             line = input()
-            message['msg'] += line + "\n"
+            payload['msg'] += line + "\n"
             if not len(line) and not len(last_line):
                 break
 
-        message['msg'] = json.dumps(message['msg'])
-        message['copy'] = message['msg']
+            payload['msg'] = json.dumps(payload['msg'])
+            payload['copy'] = payload['msg']
 
-        data = self.send_message(
-            self.secure.encapsulate_secure_message(message))
+        # Get receiver public key and certificate
+        resource_payload = self.secure.encapsulate_resource_message(payload['dst'])
+        if resource_payload is not None:
+            data = self.send_payload(
+                self.secure.encapsulate_secure_message(resource_payload))
+            self.secure.uncapsulate_resource_message(
+                self.secure.uncapsulate_secure_message(data))
+
+        # Cipher message
+        payload['msg'] = self.secure.cipher_message_to_user(
+            payload['msg'], 'message', payload['dst'])
+
+        data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
@@ -249,65 +257,63 @@ class Client:
             print("Message ID: " + data['result'][0])
             print("Receipt ID: " + data['result'][1])
 
-
     def receive_message(self):
-        message = {
+        payload = {
             'type': 'recv'
-            # security related fields
         }
 
         while True:
             try:
-                message['id'] = int(input("Message box's User ID: "))
+                payload['id'] = int(input("Message box's User ID: "))
                 break
             except ValueError:
                 print("ERROR: Invalid User ID")
 
         while True:
             try:
-                message['msg'] = str(input("Message ID: "))
+                payload['msg'] = str(input("Message ID: "))
                 break
             except ValueError:
                 print("ERROR: Invalid message ID")
 
-        data = self.send_message(
-            self.secure.encapsulate_secure_message(message))
+        data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
         if 'error' in data:
             print("ERROR: " + data['error'])
         else:
             print("Message Sender ID: " + data['result'][0])
-            print("Message: " + data['result'][1])
+            message = self.secure.decipher_message_from_user(data['result'][1])
+            print("Message: " + message)
 
-    def receipt_message(self):
-        # TODO: refactor all method
-        message = {
-            'type': 'receipt'
-            # security related fields
+            # Send receipt
+            self.receipt_message(data['result'][0], message, payload['id'])
+
+    def receipt_message(self, message_id, message, receipt_user_id):
+        payload = {
+            'type': 'receipt',
+            'id': receipt_user_id,
+            'msg': message_id
         }
 
-        while True:
-            try:
-                message['id'] = int(input("Receipts box's User ID: "))
-                break
-            except ValueError:
-                print("ERROR: Invalid User ID")
+        # Get receiver public key and certificate
+        resource_payload = self.secure.encapsulate_resource_message(payload['id'])
+        if resource_payload is not None:
+            data = self.send_payload(
+                self.secure.encapsulate_secure_message(resource_payload))
+            self.secure.uncapsulate_resource_message(
+                self.secure.uncapsulate_secure_message(data))
 
-        while True:
-            try:
-                message['msg'] = str(input("Message ID: "))
-                break
-            except ValueError:
-                print("ERROR: Invalid message ID")
+        # Generate signed hash of timestamp|hashed message
+        hash_algorithm = self.secure.cipher_suite['sha']['size']
+        payload['hashed_timestamp_message'] = digest_payload(
+            digest_payload(message, hash_algorithm) + time.time(), hash_algorithm)
+        payload['signature'] = sign(payload['hashed_timestamp_message'])
 
-        # TODO :
-        # receipt field contains a signature over the plaintext message received,
-        # calculated with the same credentials that the user uses to authenticate mes-
-        # sages to other users.
-        message['receipt'] = ""
+        # Cipher message
+        message = self.secure.cipher_message_to_user(
+            payload, 'receipt', payload['id'])
 
-        ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
-                + '\r\n'.encode('utf-8'))
+        self.send_payload(self.secure.encapsulate_secure_message(message))
 
     def message_status(self):
         message = {
@@ -329,19 +335,22 @@ class Client:
             except ValueError:
                 print("ERROR: Invalid message ID")
 
-        data = self.send_message(
-            self.secure.encapsulate_secure_message(message))
+        data = self.send_payload(self.secure.encapsulate_secure_message(message))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
             print("ERROR: " + data['error'])
         else:
-            print("Message: " + data['result']['msg'])
+            message = self.secure.decipher_message_from_user(
+                data['result']['msg'])
+            print("Message: " + message)
             print("\nAll receipts: ")
             for receipt in data['result']['receipts']:
                 print("\tDate: " + receipt['date'])
                 print("\tReceipt sender ID: " + receipt['id'])
-                print("\tReceipt: " + receipt['receipt'])
+                deciphered_receipt = self.secure.decipher_message_from_user(
+                    receipt['receipt'])
+                print("\tReceipt: " + deciphered_receipt)
                 print("")
 
 
@@ -356,35 +365,29 @@ def main():
     while True:
         print("")
         print("OPTIONS")
-        #print("1 - [CREATE] Create a new user message box")
-        print("2 - [LIST] List all user client boxes")
-        print("3 - [NEW] List all new messages in a user's message box")
-        print("4 - [ALL] List all messages in a user's message box")
-        print("5 - [SEND] Send a new message")
-        print("6 - [RECV] Receive a message from a user's message box")
-        print("7 - [RECEIPT] Receipt sent after receiving and validating a message")
-        print("8 - [STATUS] Check the status of a previously sent message")
+        print("1 - [LIST] List all user client boxes")
+        print("2 - [NEW] List all new messages in a user's message box")
+        print("3 - [ALL] List all messages in a user's message box")
+        print("4 - [SEND] Send a new message")
+        print("5 - [RECV] Receive a message from a user's message box")
+        print("6 - [STATUS] Check the status of a previously sent message")
         print("0 - [EXIT] Exit client")
         op = int(input("Select an option: "))
         print("")
 
         if op == 0:
             break
-        #elif op == 1:
-        #    client.create_user()
-        elif op == 2:
+        elif op == 1:
             client.list_message_boxes()
-        elif op == 3:
+        elif op == 2:
             client.list_all_new_messages()
-        elif op == 4:
+        elif op == 3:
             client.list_all_messages()
-        elif op == 5:
+        elif op == 4:
             client.send_message()
-        elif op == 6:
+        elif op == 5:
             client.receive_message()
-        elif op == 7:
-            client.receipt_message()
-        elif op == 8:
+        elif op == 6:
             client.message_status()
 
     client.ss.close()

@@ -191,12 +191,6 @@ def read_from_file(uuid):
 """
 
 
-def rsa_generate_keypair(length):
-    assert length in [1024, 2048]
-    private_key = rsa.generate_private_key(65537, length, default_backend())
-    return private_key, private_key.public_key()
-
-
 def rsa_sign(private_key, payload, hash_algorithm):
     h = get_hash_algorithm(hash_algorithm)
     signature = private_key.sign(

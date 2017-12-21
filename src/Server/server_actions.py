@@ -1,7 +1,7 @@
 import logging
-from log import *
-from server_registry import *
-from server_client import *
+from src.Server.log import *
+from src.Server.server_registry import *
+from src.Server.server_client import *
 import json
 
 
@@ -16,7 +16,8 @@ class ServerActions:
             'recv': self.processRecv,
             'create': self.processCreate,
             'receipt': self.processReceipt,
-            'status': self.processStatus
+            'status': self.processStatus,
+            'resource': self.processResource
         }
 
         self.registry = ServerRegistry()
@@ -219,3 +220,26 @@ class ServerActions:
 
         response = self.registry.getReceipts(fromId, msg)
         client.sendResult({"result": response})
+
+    def processResource(self, data, client):
+        log(logging.DEBUG, "%s" % json.dumps(data))
+
+        if not set({'ids'}).issubset(set(data.keys())):
+            log(logging.ERROR, "Badly formated \"status\" message: " +
+                json.dumps(data))
+            client.sendResult({"error": "wrong message format"})
+
+        result = []
+        for user in data['ids']:
+            pub_key = self.registry.users[user]['secdata']['rsapubkey']\
+                if user in self.registry.users else None
+            certificate = self.registry.users[user]['secdata']['cccertificate']\
+                if user in self.registry.users else None
+            result += [
+                {
+                    'id': user,
+                    'rsapubkey': pub_key,
+                    'cccertificate': certificate
+                }
+            ]
+        client.sendResult({"result": result})

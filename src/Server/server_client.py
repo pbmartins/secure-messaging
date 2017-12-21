@@ -1,5 +1,6 @@
 import logging
-from log import *
+from src.Server.log import *
+from src.Server.server_secure import *
 import json
 import sys
 
@@ -12,13 +13,16 @@ sys.tracebacklimit = 30
 class Client:
     count = 0
 
-    def __init__(self, socket, addr):
+    def __init__(self, socket, addr, certificates):
         self.socket = socket
         self.bufin = ""
         self.bufout = ""
         self.addr = addr
         self.id = None
         self.sa_data = None
+        self.secure = ServerSecure()
+
+        # TODO: Apply security constraints
 
     def __str__(self):
         """ Converts object into string.
@@ -64,5 +68,3 @@ class Client:
             self.socket.close()
         except:
             logging.exception("Client.close(%s)" % self)
-
-

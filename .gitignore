@@ -2,3 +2,5 @@
 *.pyc
 src/mboxes
 src/receipts
+.ide
+.idea

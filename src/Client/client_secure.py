@@ -1,4 +1,4 @@
-from src.Client.client_keys import *
+from src.Client.cipher_utils import *
 from src.Client import cc_interface as cc
 from src.Client import certificates
 from cryptography.exceptions import *
@@ -31,18 +31,21 @@ class ClientSecure:
 
     def __init__(self, cipher_spec, private_key, public_key):
         self.cipher_spec = cipher_spec
-        self.cipher_suite = {}
+        self.cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
         self.number_of_hash_derivations = 1
         self.salt_list = []
         self.nounces = []
         self.cc_cert = cc.get_pub_key_certificate()
         self.certificates = certificates.X509Certificates()
 
-        self.priv_value, self.pub_value = generate_ecdh_keypair()
+        self.priv_value = None
+        self.pub_value = None
         self.peer_pub_value = None
         self.peer_salt = None
         self.private_key = private_key
         self.public_key = public_key
+
+        self.user_certificates = {}
 
     def encapsulate_insecure_message(self):
         self.priv_value, self.pub_value = generate_ecdh_keypair()
@@ -160,7 +163,35 @@ class ClientSecure:
 
         return deciphered_payload
 
-    def cipher_message_to_user(self, message, peer_rsa_pubkey):
+    def encapsulate_resource_message(self, ids):
+        # Check if already exists user public infos
+        for user in ids:
+            if user in self.user_certificates:
+                ids.remove(user)
+
+        if not len(ids):
+            return None
+
+        # Construct resource payload
+        resource_payload = {
+            'type': 'resource',
+            'ids': ids
+        }
+
+        return resource_payload
+
+    def uncapsulate_resource_message(self, resource_payload):
+        # Save user certificate
+        for user in resource_payload['result']:
+            self.user_certificates[user['id']] = {
+                'pub_key': user['rsapubkey'],
+                'certificate:': user['certificate']
+            }
+
+    def cipher_message_to_user(self, payload_type, message, user_id):
+        assert message['cipher_spec'] == self.cipher_spec
+        assert user_id in self.user_certificates
+
         # Cipher payload
         aes_key = os.urandom(self.cipher_suite['aes']['key_size'])
         aes_cipher, aes_iv = generate_aes_cipher(
@@ -168,6 +199,8 @@ class ClientSecure:
 
         encryptor = aes_cipher.encryptor()
         ciphered_message = encryptor.update(message) + encryptor.finalize()
+
+        peer_rsa_pubkey = self.user_certificates[user_id]
 
         # Cipher AES key and IV
         aes_iv_key = aes_iv + aes_key
@@ -183,7 +216,7 @@ class ClientSecure:
                 self.cipher_suite['sha']['size'])
         payload = {
             'payload': {
-                'message': ciphered_message,
+                payload_type: ciphered_message,
                 'nounce': nounce,
                 'key_iv': ciphered_aes_iv_key
             },
