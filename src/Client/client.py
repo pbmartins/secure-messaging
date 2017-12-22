@@ -54,9 +54,16 @@ class Client:
         self.secure = None
         self.cc_certificate = None
 
+        self.login()
+
     def send_payload(self, message):
-        self.ss.send(json.dumps(message)[:BUFSIZE].encode('utf-8')
-                + '\r\n'.encode('utf-8'))
+        print(message)
+        to_send = json.dumps(message)
+        while len(to_send):
+            self.ss.send(to_send[:BUFSIZE].encode('utf-8')
+                         + '\r\n'.encode('utf-8'))
+            to_send = to_send[BUFSIZE:]
+            print('HELLO')
         data = json.loads(self.ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
         return data
 
@@ -65,13 +72,15 @@ class Client:
         print("Make sure you have your CC inserted.")
         print("If you don't have an account, it'll be automatically created.")
         self.cc_certificate = get_pub_key_certificate()
-        self.uuid = self.cc_certificate.digest()
-        self.password = getpass.getpass("Password: ")
+        self.uuid = self.cc_certificate.digest('sha256').decode()
+        print('Login with ', self.uuid, '\n')
+        self.password = getpass.getpass("\nPassword: ")
 
-        cipher_suite = ClientSecure.get_cipher_suite(Client.choose_cipher_spec())
+        cipher_spec = Client.choose_cipher_spec()
+        cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
 
         # Generate RSA keys and save them into file
-        key_dir = DIR_PATH + 'keys/' + self.uuid
+        key_dir = DIR_PATH + '/keys/' + self.uuid
         if not os.path.exists(key_dir):
             os.makedirs(key_dir)
             priv_key, pub_key = generate_rsa_keypair(cipher_suite['rsa']['key_size'])
@@ -79,9 +88,6 @@ class Client:
             # Save private key to ciphered file
             save_to_ciphered_file(
                 self.password,
-                cipher_suite['aes']['key_size'],
-                cipher_suite['sha']['size'],
-                cipher_suite['aes']['mode'],
                 priv_key,
                 self.uuid
             )
@@ -90,7 +96,7 @@ class Client:
             save_to_file(pub_key, self.uuid)
 
             # Initialize session with the server
-            self.secure = ClientSecure(cipher_suite, priv_key, pub_key)
+            self.secure = ClientSecure(cipher_spec, cipher_suite, priv_key, pub_key)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
@@ -101,9 +107,6 @@ class Client:
             # Read private key from ciphered file
             priv_key = read_from_ciphered_file(
                 self.password,
-                cipher_suite['aes']['key_size'],
-                cipher_suite['sha']['size'],
-                cipher_suite['aes']['mode'],
                 self.uuid
             )
 
@@ -111,7 +114,7 @@ class Client:
             pub_key = read_from_file(self.uuid)
 
             # Initialize session with the server
-            self.secure = ClientSecure(cipher_suite, priv_key, pub_key)
+            self.secure = ClientSecure(cipher_spec, cipher_suite, priv_key, pub_key)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
@@ -121,8 +124,9 @@ class Client:
             'uuid': self.uuid,
             'secdata': {
                 'rsapubkey':
-                    self.cc_certificate.get_pubkey().to_cryptography_key(),
-                'cccertificate': self.cc_certificate
+                    ClientSecure.serialize_key(
+                        self.cc_certificate.get_pubkey().to_cryptography_key()),
+                'cccertificate': ClientSecure.serialize_certificate(self.cc_certificate)
             }
         }
 

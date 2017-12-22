@@ -13,7 +13,7 @@ sys.tracebacklimit = 30
 class Client:
     count = 0
 
-    def __init__(self, socket, addr, certificates):
+    def __init__(self, socket, addr):
         self.socket = socket
         self.bufin = ""
         self.bufout = ""
@@ -49,11 +49,12 @@ class Client:
         print(reqs[:-1])
         return reqs[:-1]
 
-    def sendResult(self, obj):
+    def sendResult(self, obj, nounce):
         """Send an object to this client.
         """
         try:
-            self.bufout += json.dumps(obj) + "\n\n"
+            self.bufout += json.dumps(self.secure.encapsulate_secure_message(
+                json.dumps(obj), nounce)) + "\n\n"
         except:
             # It should never happen! And not be reported to the client!
             logging.exception("Client.send(%s)" % self)

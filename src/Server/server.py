@@ -20,7 +20,7 @@ from src.Client.cipher_utils import *
 from src.Server.certificates import *
 
 # Server address
-HOST = ""   # All available interfaces
+HOST = ""  # All available interfaces
 PORT = 8080  # The server port
 
 BUFSIZE = 512 * 1024
@@ -29,6 +29,8 @@ MAX_BUFSIZE = 64 * 1024
 
 
 class Server:
+    registry = ServerRegistry()
+    certificates = X509Certificates(registry.users)
 
     def __init__(self, host, port):
         self.ss = socket(AF_INET, SOCK_STREAM)  # the server socket (IP \ TCP)
@@ -38,12 +40,10 @@ class Server:
         log(logging.INFO, "Secure IM server listening on %s" %
             str(self.ss.getsockname()))
 
-        self.registry = ServerRegistry()
         self.server_actions = ServerActions()
-        self.certificates = X509Certificates(self.registry.users)
 
         # clients to manage (indexed by socket and by name):
-        self.clients = {}       # clients (key is socket)
+        self.clients = {}  # clients (key is socket)
 
     def stop(self):
         """ Stops the server closing all sockets
@@ -115,8 +115,13 @@ class Server:
         else:
             if len(data) > 0:
                 reqs = client.parseReqs(data)
-                for req in reqs:
-                    self.server_actions.handleRequest(s, req, self.clients[s])
+                for s_req in reqs:
+                    sec_req = json.loads(s_req)
+                    # Uncapsulate payload based on its secure type
+                    req, nounce = client.secure.uncapsulate_insecure_message(sec_req) \
+                        if sec_req['type'] == 'insecure' \
+                        else client.secure.uncapsulate_secure_message(sec_req)
+                    self.server_actions.handleRequest(s, req, self.clients[s], nounce)
             else:
                 self.delClient(s)
 
@@ -128,7 +133,10 @@ class Server:
 
         client = self.clients[s]
         try:
-            sent = client.socket.send(client.bufout[:BUFSIZE].encode('utf-8'))
+            # Encapsulate message in a secure payload
+            sec_message = client.bufout[:BUFSIZE]
+
+            sent = client.socket.send(sec_message.encode('utf-8'))
             log(logging.DEBUG, "Sent %d bytes to %s. Message:\n%r" %
                 (sent, client, client.bufout[:sent]))
             # leave remaining to be sent later
@@ -176,13 +184,16 @@ class Server:
 
 serv = None
 
-if __name__ == "__main__":
+
+def main():
+    global PORT
     global serv
+
     if len(sys.argv) > 1:
         PORT = int(sys.argv[1])
 
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format=
-        '%(asctime)s - %(levelname)s - %(message)s')
+    '%(asctime)s - %(levelname)s - %(message)s')
 
     while True:
         try:
@@ -202,3 +213,7 @@ if __name__ == "__main__":
             if serv is not (None):
                 serv.stop()
             time.sleep(10)
+
+
+if __name__ == "__main__":
+    main()

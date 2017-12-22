@@ -42,14 +42,14 @@ class X509Certificates:
         self.import_certs()
 
     def import_certs(self):
-        files = [f for f in os.listdir('./CCCerts')]
+        files = [f for f in os.listdir('./certs')]
 
         for f_name in files:
             if f_name.split('.')[1] not in ['der', 'cer', 'crt']:
                 continue
 
             mode = 'rb' if '.cer' in f_name else 'r'
-            f = open('./CCCerts/' + f_name, mode)
+            f = open('./certs/' + f_name, mode)
             if mode == 'r':
                 cert = crypto.X509.from_cryptography(
                     x509.load_pem_x509_certificate(f.read().encode(),

@@ -1,7 +1,7 @@
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa, padding, ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 import os
 import base64
@@ -126,54 +126,46 @@ def derive_key_from_ecdh(private_key, peer_pubkey, priv_salt, pub_salt,
 """
 
 
-def save_to_ciphered_file(password, length, hash_algorithm,
-                          aes_mode, payload, uuid):
+def save_to_ciphered_file(password, payload, uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
     f = open(os.path.join(dir_path, 'keys/' + uuid + '/priv_rsa'), 'wb')
 
-    # Derive key from password and generate AES cipher object
-    salt = os.urandom(16)
-    key = derive_key(password, length, hash_algorithm, salt)
-    cipher, iv = generate_aes_cipher(key, aes_mode)
+    password = password if isinstance(password, bytes) else password.encode()
 
     # Cipher payload
-    encryptor = cipher.encryptor()
-    ciphered_payload = encryptor.update(payload) + encryptor.finalize()
-
-    # Save to file
-    file_payload = base64.b64encode(salt + '\n\n' + iv) + b'\n\n' + \
-            ciphered_payload
+    file_payload = payload.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.BestAvailableEncryption(password))
 
     f.write(file_payload)
+    f.close()
 
 
 def save_to_file(payload, uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
     f = open(os.path.join(dir_path, 'keys/' + uuid + '/pub_rsa'), 'wb')
 
+    file_payload = payload.public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo)
+
     # Save to file
-    f.write(payload)
+    f.write(file_payload)
+    f.close()
 
 
-def read_from_ciphered_file(password, length, hash_algorithm, aes_mode, uuid):
+def read_from_ciphered_file(password, uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
     f = open(os.path.join(dir_path, 'keys/' + uuid + '/priv_rsa'), 'rb')
-    file_payload = f.read()
 
-    info = file_payload.split(b'\n\n')
-    if len(info) != 2:
-        return None
-
-    salt_iv = base64.b64decode(info[0]).split('\n\n')
-    ciphered_payload = info[1]
-
-    # Derive key from password and generate AES cipher object
-    key = derive_key(password, length, hash_algorithm, salt_iv[0])
-    cipher, iv = generate_aes_cipher(key, aes_mode, salt_iv[1])
+    password = password if isinstance(password, bytes) else password.encode()
 
     # Decipher payload
-    decryptor = cipher.decryptor()
-    payload = decryptor.update(ciphered_payload) + decryptor.finalize()
+    payload = serialization.load_pem_private_key(f.read(), password, default_backend())
+
+    f.close()
+
     return payload
 
 
@@ -181,8 +173,9 @@ def read_from_file(uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
     f = open(os.path.join(dir_path, 'keys/' + uuid + '/pub_rsa'), 'rb')
 
-    # Save to file
-    payload = f.read()
+    # Read from file
+    payload = serialization.load_pem_public_key(f.read(), default_backend())
+
     return payload
 
 

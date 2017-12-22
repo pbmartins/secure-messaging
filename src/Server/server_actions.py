@@ -17,12 +17,13 @@ class ServerActions:
             'create': self.processCreate,
             'receipt': self.processReceipt,
             'status': self.processStatus,
-            'resource': self.processResource
+            'resource': self.processResource,
+            'init': self.processInit
         }
 
         self.registry = ServerRegistry()
 
-    def handleRequest(self, s, request, client):
+    def handleRequest(self, s, request, client, nounce):
         """Handle a request from a client socket.
         """
         try:
@@ -30,7 +31,7 @@ class ServerActions:
                          (client, repr(request)))
 
             try:
-                req = json.loads(request)
+                req = request
             except:
                 logging.exception("Invalid message from client")
                 return
@@ -44,7 +45,7 @@ class ServerActions:
                 return
 
             if req['type'] in self.messageTypes:
-                self.messageTypes[req['type']](req, client)
+                self.messageTypes[req['type']](req, client, nounce)
             else:
                 log(logging.ERROR, "Invalid message type: " +
                     str(req['type']) + " Should be one of: " + str(list(self.messageTypes.keys())))
@@ -53,31 +54,31 @@ class ServerActions:
         except Exception as e:
             logging.exception("Could not handle request")
 
-    def processCreate(self, data, client):
+    def processCreate(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         if 'uuid' not in list(data.keys()):
             log(logging.ERROR, "No \"uuid\" field in \"create\" message: " +
                 json.dumps(data))
-            client.sendResult({"error": "wrong message format"})
+            client.sendResult({"error": "wrong message format"}, nounce)
             return
 
         uuid = data['uuid']
         if not isinstance(uuid, int):
             log(logging.ERROR, "No valid \"uuid\" field in \"create\" message: " +
                 json.dumps(data))
-            client.sendResult({"error": "wrong message format"})
+            client.sendResult({"error": "wrong message format"}, nounce)
             return
 
         if self.registry.userExists(uuid):
             log(logging.ERROR, "User already exists: " + json.dumps(data))
-            client.sendResult({"error": "uuid already exists"})
+            client.sendResult({"error": "uuid already exists"}, nounce)
             return
 
         me = self.registry.addUser(data)
-        client.sendResult({"result": me.id})
+        client.sendResult({"result": me.id}, nounce)
 
-    def processList(self, data, client):
+    def processList(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         user = 0  # 0 means all users
@@ -90,9 +91,9 @@ class ServerActions:
 
         userList = self.registry.listUsers(user)
 
-        client.sendResult({"result": userList})
+        client.sendResult({"result": userList}, nounce)
 
-    def processNew(self, data, client):
+    def processNew(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         user = -1
@@ -102,13 +103,13 @@ class ServerActions:
         if user < 0:
             log(logging.ERROR,
                 "No valid \"id\" field in \"new\" message: " + json.dumps(data))
-            client.sendResult({"error": "wrong message format"})
+            client.sendResult({"error": "wrong message format"}, nounce)
             return
 
         client.sendResult(
-            {"result": self.registry.userNewMessages(user)})
+            {"result": self.registry.userNewMessages(user)}, nounce)
 
-    def processAll(self, data, client):
+    def processAll(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         user = -1
@@ -118,18 +119,19 @@ class ServerActions:
         if user < 0:
             log(logging.ERROR,
                 "No valid \"id\" field in \"new\" message: " + json.dumps(data))
-            client.sendResult({"error": "wrong message format"})
+            client.sendResult({"error": "wrong message format"}, nounce)
             return
 
-        client.sendResult({"result": [self.registry.userAllMessages(user), self.registry.userSentMessages(user)]})
+        client.sendResult({"result": [self.registry.userAllMessages(user),
+                                      self.registry.userSentMessages(user)]}, nounce)
 
-    def processSend(self, data, client):
+    def processSend(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         if not set(data.keys()).issuperset(set({'src', 'dst', 'msg', 'copy'})):
             log(logging.ERROR,
                 "Badly formatted \"send\" message: " + json.dumps(data))
-            client.sendResult({"error": "wrong message format"})
+            client.sendResult({"error": "wrong message format"}, nounce)
 
         srcId = int(data['src'])
         dstId = int(data['dst'])
@@ -139,28 +141,28 @@ class ServerActions:
         if not self.registry.userExists(srcId):
             log(logging.ERROR,
                 "Unknown source id for \"send\" message: " + json.dumps(data))
-            client.sendResult({"error": "wrong parameters"})
+            client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
         if not self.registry.userExists(dstId):
             log(logging.ERROR,
                 "Unknown destination id for \"send\" message: " + json.dumps(data))
-            client.sendResult({"error": "wrong parameters"})
+            client.sendResult({"error": "wrong parameters"},nounce)
             return
 
         # Save message and copy
 
         response = self.registry.sendMessage(srcId, dstId, msg, copy)
 
-        client.sendResult({"result": response})
+        client.sendResult({"result": response}, nounce)
 
-    def processRecv(self, data, client):
+    def processRecv(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         if not set({'id', 'msg'}).issubset(set(data.keys())):
             log(logging.ERROR, "Badly formated \"recv\" message: " +
                 json.dumps(data))
-            client.sendResult({"error": "wrong message format"})
+            client.sendResult({"error": "wrong message format"}, nounce)
 
         fromId = int(data['id'])
         msg = str(data['msg'])
@@ -168,28 +170,28 @@ class ServerActions:
         if not self.registry.userExists(fromId):
             log(logging.ERROR,
                 "Unknown source id for \"recv\" message: " + json.dumps(data))
-            client.sendResult({"error": "wrong parameters"})
+            client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
         if not self.registry.messageExists(fromId, msg):
             log(logging.ERROR,
                 "Unknown source msg for \"recv\" message: " + json.dumps(data))
-            client.sendResult({"error": "wrong parameters"})
+            client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
         # Read message
 
         response = self.registry.recvMessage(fromId, msg)
 
-        client.sendResult({"result": response})
+        client.sendResult({"result": response}, nounce)
 
-    def processReceipt(self, data, client):
+    def processReceipt(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         if not set({'id', 'msg', 'receipt'}).issubset(set(data.keys())):
             log(logging.ERROR, "Badly formated \"receipt\" message: " +
                 json.dumps(data))
-            client.sendResult({"error": "wrong request format"})
+            client.sendResult({"error": "wrong request format"}, nounce)
 
         fromId = int(data["id"])
         msg = str(data['msg'])
@@ -197,37 +199,37 @@ class ServerActions:
 
         if not self.registry.messageWasRed(str(fromId), msg):
             log(logging.ERROR, "Unknown, or not yet red, message for \"receipt\" request " + json.dumps(data))
-            client.sendResult({"error": "wrong parameters"})
+            client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
         self.registry.storeReceipt(fromId, msg, receipt)
 
-    def processStatus(self, data, client):
+    def processStatus(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         if not set({'id', 'msg'}).issubset(set(data.keys())):
             log(logging.ERROR, "Badly formated \"status\" message: " +
                 json.dumps(data))
-            client.sendResult({"error": "wrong message format"})
+            client.sendResult({"error": "wrong message format"}, nounce)
         
         fromId = int(data['id'])
         msg = str(data["msg"])
 
         if not self.registry.copyExists(fromId, msg):
             log(logging.ERROR, "Unknown message for \"status\" request: " + json.dumps(data))
-            client.sendResult({"error": "wrong parameters"})
+            client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
         response = self.registry.getReceipts(fromId, msg)
         client.sendResult({"result": response})
 
-    def processResource(self, data, client):
+    def processResource(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
 
         if not set({'ids'}).issubset(set(data.keys())):
             log(logging.ERROR, "Badly formated \"status\" message: " +
                 json.dumps(data))
-            client.sendResult({"error": "wrong message format"})
+            client.sendResult({"error": "wrong message format"}, nounce)
 
         result = []
         for user in data['ids']:
@@ -242,4 +244,9 @@ class ServerActions:
                     'cccertificate': certificate
                 }
             ]
-        client.sendResult({"result": result})
+        client.sendResult({"result": result}, nounce)
+
+    def processInit(self, data, client, nounce):
+        log(logging.DEBUG, "%s" % json.dumps(data))
+
+        client.sendResult({"message": ""}, nounce)
