@@ -18,8 +18,9 @@ class Client:
         self.bufin = ""
         self.bufout = ""
         self.addr = addr
-        self.id = None
-        self.sa_data = None
+        Client.count += 1
+        self.id = Client.count
+        self.sec_data = None
         self.secure = ServerSecure()
 
         # TODO: Apply security constraints
@@ -46,7 +47,7 @@ class Client:
         self.bufin += data
         reqs = self.bufin.split(TERMINATOR)
         self.bufin = reqs[-1]
-        print(reqs[:-1])
+        #print(reqs[:-1])
         return reqs[:-1]
 
     def sendResult(self, obj, nounce):

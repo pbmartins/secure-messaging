@@ -133,7 +133,6 @@ class Server:
 
         client = self.clients[s]
         try:
-            # Encapsulate message in a secure payload
             sec_message = client.bufout[:BUFSIZE]
 
             sent = client.socket.send(sec_message.encode('utf-8'))

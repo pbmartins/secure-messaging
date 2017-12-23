@@ -68,6 +68,7 @@ def derive_key(password, length, hash_algorithm, salt):
     assert length * 8 in [192, 256]
     assert salt is not None
 
+    # TODO: CHECK WHY KEYS ARE NOT THE SAME
     h = get_hash_algorithm(hash_algorithm)
 
     info = b"hkdf-password-derivation"
@@ -128,7 +129,7 @@ def derive_key_from_ecdh(private_key, peer_pubkey, priv_salt, pub_salt,
 
 def save_to_ciphered_file(password, payload, uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    f = open(os.path.join(dir_path, 'keys/' + uuid + '/priv_rsa'), 'wb')
+    f = open(os.path.join(dir_path, 'keys/' + str(uuid) + '/priv_rsa'), 'wb')
 
     password = password if isinstance(password, bytes) else password.encode()
 
@@ -144,7 +145,7 @@ def save_to_ciphered_file(password, payload, uuid):
 
 def save_to_file(payload, uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    f = open(os.path.join(dir_path, 'keys/' + uuid + '/pub_rsa'), 'wb')
+    f = open(os.path.join(dir_path, 'keys/' + str(uuid) + '/pub_rsa'), 'wb')
 
     file_payload = payload.public_bytes(
         serialization.Encoding.PEM,
@@ -157,7 +158,7 @@ def save_to_file(payload, uuid):
 
 def read_from_ciphered_file(password, uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    f = open(os.path.join(dir_path, 'keys/' + uuid + '/priv_rsa'), 'rb')
+    f = open(os.path.join(dir_path, 'keys/' + str(uuid) + '/priv_rsa'), 'rb')
 
     password = password if isinstance(password, bytes) else password.encode()
 
@@ -171,7 +172,7 @@ def read_from_ciphered_file(password, uuid):
 
 def read_from_file(uuid):
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    f = open(os.path.join(dir_path, 'keys/' + uuid + '/pub_rsa'), 'rb')
+    f = open(os.path.join(dir_path, 'keys/' + str(uuid) + '/pub_rsa'), 'rb')
 
     # Read from file
     payload = serialization.load_pem_public_key(f.read(), default_backend())

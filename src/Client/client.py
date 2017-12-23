@@ -2,11 +2,13 @@ from socket import *
 from src.Client.cc_interface import *
 from src.Client.cipher_utils import *
 from src.Client.client_secure import *
+from src.Client.log import *
 import json
 import getpass
 import base64
 import os
 import time
+import logging
 
 # Server address
 HOST = ""   # All available interfaces
@@ -57,13 +59,13 @@ class Client:
         self.login()
 
     def send_payload(self, message):
-        print(message)
+        #print(message)
         to_send = json.dumps(message)
         while len(to_send):
             self.ss.send(to_send[:BUFSIZE].encode('utf-8')
                          + '\r\n'.encode('utf-8'))
             to_send = to_send[BUFSIZE:]
-            print('HELLO')
+
         data = json.loads(self.ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
         return data
 
@@ -72,16 +74,17 @@ class Client:
         print("Make sure you have your CC inserted.")
         print("If you don't have an account, it'll be automatically created.")
         self.cc_certificate = get_pub_key_certificate()
-        self.uuid = self.cc_certificate.digest('sha256').decode()
+        self.uuid = int(
+            self.cc_certificate.digest('sha256').decode().replace(':', ''), 16)
         print('Login with ', self.uuid, '\n')
         self.password = getpass.getpass("\nPassword: ")
 
-        cipher_spec = Client.choose_cipher_spec()
-        cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
-
         # Generate RSA keys and save them into file
-        key_dir = DIR_PATH + '/keys/' + self.uuid
+        key_dir = DIR_PATH + '/keys/' + str(self.uuid)
         if not os.path.exists(key_dir):
+            cipher_spec = Client.choose_cipher_spec()
+            cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
+
             os.makedirs(key_dir)
             priv_key, pub_key = generate_rsa_keypair(cipher_suite['rsa']['key_size'])
 
@@ -96,14 +99,16 @@ class Client:
             save_to_file(pub_key, self.uuid)
 
             # Initialize session with the server
-            self.secure = ClientSecure(cipher_spec, cipher_suite, priv_key, pub_key)
+            self.secure = ClientSecure(priv_key, pub_key, cipher_spec, cipher_suite)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
+            log(logging.DEBUG, "Secure session with server established")
             # Create user account
             self.create_user()
 
         else:
+            log(logging.DEBUG, "Logging in")
             # Read private key from ciphered file
             priv_key = read_from_ciphered_file(
                 self.password,
@@ -114,11 +119,14 @@ class Client:
             pub_key = read_from_file(self.uuid)
 
             # Initialize session with the server
-            self.secure = ClientSecure(cipher_spec, cipher_suite, priv_key, pub_key)
+            self.secure = ClientSecure(priv_key, pub_key)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
+            log(logging.DEBUG, "Secure session with server established")
+
     def create_user(self):
+        log(logging.DEBUG, "Creating user account")
         payload = {
             'type': 'create',
             'uuid': self.uuid,
@@ -137,6 +145,8 @@ class Client:
             print("ERROR: " + data['error'])
         else:
             self.user_id = data['result']
+
+        log(logging.DEBUG, "User account created")
 
     def list_message_boxes(self):
         payload = {

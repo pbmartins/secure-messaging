@@ -1,11 +1,12 @@
 from src.Client.cipher_utils import *
 from src.Client import cc_interface as cc
-from src.Client import certificates
+from src.Client import certificates, log
 from cryptography.exceptions import *
 from OpenSSL import crypto
 import os
 import base64
 import json
+import logging
 
 
 class ClientSecure:
@@ -50,7 +51,7 @@ class ClientSecure:
     def deserialize_certificate(cert):
         return crypto.load_certificate(crypto.FILETYPE_PEM, base64.b64decode(cert.encode()))
 
-    def __init__(self, cipher_spec, cipher_suite, private_key, public_key):
+    def __init__(self, private_key, public_key, cipher_spec=None, cipher_suite=None):
         self.cipher_spec = cipher_spec
         self.cipher_suite = cipher_suite
         self.number_of_hash_derivations = 1
@@ -80,11 +81,14 @@ class ClientSecure:
             'type': 'insecure',
             'secdata': {
                 'dhpubvalue': ClientSecure.serialize_key(self.pub_value),
-                'salt': base64.b64encode(salt).decode()
+                'salt': base64.b64encode(salt).decode(),
+                'index': self.number_of_hash_derivations
             },
             'nounce': nounce,
             'cipher_spec': self.cipher_spec
         }
+        log.log(logging.DEBUG, "INSECURE MESSAGE SENT: %r" % message)
+
         return message
 
     def encapsulate_secure_message(self, payload):
@@ -94,6 +98,7 @@ class ClientSecure:
         nounce = base64.b64encode(get_nounce(16, json.dumps(payload).encode(),
                 self.cipher_suite['sha']['size'])).decode()
         self.nounces += [nounce]
+        self.number_of_hash_derivations += 1
 
         # Derive AES key and cipher payload
         aes_key = derive_key_from_ecdh(
@@ -105,7 +110,6 @@ class ClientSecure:
             self.cipher_suite['sha']['size'],
             self.number_of_hash_derivations,
         )
-        self.number_of_hash_derivations += 1
 
         aes_cipher, aes_iv = generate_aes_cipher(
             aes_key, self.cipher_suite['aes']['mode'])
@@ -114,7 +118,7 @@ class ClientSecure:
 
         ciphered_payload = encryptor.update(json.dumps(payload).encode())\
                            + encryptor.finalize()
-        print(ciphered_payload)
+
         # Sign payload with CC authentication public key
         message_payload = json.dumps({
             'message': base64.b64encode(ciphered_payload).decode(),
@@ -122,7 +126,8 @@ class ClientSecure:
             'secdata': {
                 'dhpubvalue': ClientSecure.serialize_key(self.pub_value),
                 'salt': base64.b64encode(salt).decode(),
-                'iv': base64.b64encode(aes_iv).decode()
+                'iv': base64.b64encode(aes_iv).decode(),
+                'index': self.number_of_hash_derivations
             }
         }).encode()
 
@@ -138,9 +143,15 @@ class ClientSecure:
             'cipher_spec': self.cipher_spec
         }
 
+        log.log(logging.DEBUG, "SECURE MESSAGE SENT: %r" % message)
+
         return message
 
     def uncapsulate_secure_message(self, message):
+        if self.cipher_spec is None:
+            self.cipher_spec = message['cipher_spec']
+            ClientSecure.get_cipher_suite(self.cipher_spec)
+
         assert message['cipher_spec'] == self.cipher_spec
         """
         # Verify signature and certificate validity
@@ -157,9 +168,10 @@ class ClientSecure:
             return "Invalid signature"
         """
 
-
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
+
+        log.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
 
         # Check if it corresponds to a previously sent message
         if not message['payload']['nounce'] in self.nounces:
@@ -169,16 +181,16 @@ class ClientSecure:
 
         # Derive AES key and decipher payload
         salt_idx = self.number_of_hash_derivations - 1
-        self.number_of_hash_derivations = 1
-        self.peer_pub_value = \
-            ClientSecure.deserialize_key(message['payload']['secdata']['dhpubvalue'])
-        self.peer_salt = base64.b64decode(message['payload']['secdata']['salt'].encode())
+        self.peer_pub_value = ClientSecure.deserialize_key(
+            message['payload']['secdata']['dhpubvalue'])
+        self.peer_salt = base64.b64decode(
+            message['payload']['secdata']['salt'].encode())
 
         aes_key = derive_key_from_ecdh(
             self.priv_value,
             self.peer_pub_value,
-            self.salt_list[salt_idx],
             self.peer_salt,
+            self.salt_list[salt_idx],
             self.cipher_suite['aes']['key_size'],
             self.cipher_suite['sha']['size'],
             self.number_of_hash_derivations,
@@ -193,6 +205,12 @@ class ClientSecure:
         decryptor = aes_cipher.decryptor()
         deciphered_payload = decryptor.update(base64.b64decode(
             message['payload']['message'].encode())) + decryptor.finalize()
+        deciphered_payload = json.loads(json.loads(deciphered_payload.decode()))
+
+        # Derive new DH values
+        self.priv_value, self.pub_value = generate_ecdh_keypair()
+        self.number_of_hash_derivations = 0
+        self.salt_list = []
 
         return deciphered_payload
 

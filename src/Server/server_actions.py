@@ -76,6 +76,7 @@ class ServerActions:
             return
 
         me = self.registry.addUser(data)
+        # TODO: Add security data to user profile
         client.sendResult({"result": me.id}, nounce)
 
     def processList(self, data, client, nounce):
