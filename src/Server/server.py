@@ -12,7 +12,7 @@ import json
 import sys
 import time
 import logging
-from src.Server.log import *
+from src.Server import log
 from src.Server.server_client import *
 from src.Server.server_registry import *
 from src.Server.server_actions import *
@@ -37,7 +37,7 @@ class Server:
         self.ss.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         self.ss.bind((host, port))
         self.ss.listen(10)
-        log(logging.INFO, "Secure IM server listening on %s" %
+        log.log(logging.INFO, "Secure IM server listening on %s" %
             str(self.ss.getsockname()))
 
         self.server_actions = ServerActions()
@@ -48,7 +48,7 @@ class Server:
     def stop(self):
         """ Stops the server closing all sockets
         """
-        log(logging.INFO, "Stopping Server")
+        log.log(logging.INFO, "Stopping Server")
         try:
             self.ss.close()
         except:
@@ -67,18 +67,18 @@ class Server:
     def addClient(self, csock, addr):
         """Add a client connecting in csock."""
         if csock in self.clients:
-            log(logging.ERROR, "Client NOT Added: %s already exists" %
+            log.log(logging.ERROR, "Client NOT Added: %s already exists" %
                 self.clients[csock])
             return
 
         client = Client(csock, addr)
         self.clients[client.socket] = client
-        log(logging.DEBUG, "Client added: %s" % client)
+        log.log(logging.DEBUG, "Client added: %s" % client)
 
     def delClient(self, csock):
         """Delete a client connected in csock."""
         if csock not in self.clients:
-            log(logging.ERROR, "Client NOT deleted: %s not found" %
+            log.log(logging.ERROR, "Client NOT deleted: %s not found" %
                 self.clients[csock])
             return
 
@@ -86,7 +86,7 @@ class Server:
 
         del self.clients[client.socket]
         client.close()
-        log(logging.DEBUG, "Client deleted: %s" % client)
+        log.log(logging.DEBUG, "Client deleted: %s" % client)
 
     def accept(self):
         """Accept a new connection.
@@ -107,7 +107,7 @@ class Server:
         data = None
         try:
             data = s.recv(BUFSIZE).decode('utf-8')
-            log(logging.DEBUG,
+            log.log(logging.DEBUG,
                 "Received data from %s. Message:\n%r" % (client, data))
         except:
             logging.exception("flushin: recv(%s)" % client)
@@ -136,7 +136,7 @@ class Server:
             sec_message = client.bufout[:BUFSIZE]
 
             sent = client.socket.send(sec_message.encode('utf-8'))
-            log(logging.DEBUG, "Sent %d bytes to %s. Message:\n%r" %
+            log.log(logging.DEBUG, "Sent %d bytes to %s. Message:\n%r" %
                 (sent, client, client.bufout[:sent]))
             # leave remaining to be sent later
             client.bufout = client.bufout[sent:]
@@ -165,7 +165,7 @@ class Server:
                 elif s in self.clients:
                     self.flushin(s)
                 else:
-                    log(logging.ERROR,
+                    log.log(logging.ERROR,
                         "Incoming, but %s not in clients anymore" % s)
 
             # Deal with outgoing data:
@@ -173,11 +173,11 @@ class Server:
                 if s in self.clients:
                     self.flushout(s)
                 else:
-                    log(logging.ERROR,
+                    log.log(logging.ERROR,
                         "Outgoing, but %s not in clients anymore" % s)
 
             for s in xl:
-                log(logging.ERROR, "EXCEPTION in %s. Closing" % s)
+                log.log(logging.ERROR, "EXCEPTION in %s. Closing" % s)
                 self.delClient(s)
 
 
@@ -196,16 +196,16 @@ def main():
 
     while True:
         try:
-            log(logging.INFO, "Starting Secure IM Server v1.0")
+            log.log(logging.INFO, "Starting Secure IM Server v1.0")
             serv = Server(HOST, PORT)
             serv.loop()
         except KeyboardInterrupt:
             serv.stop()
             try:
-                log(logging.INFO, "Press CTRL-C again within 2 sec to quit")
+                log.log(logging.INFO, "Press CTRL-C again within 2 sec to quit")
                 time.sleep(2)
             except KeyboardInterrupt:
-                log(logging.INFO, "CTRL-C pressed twice: Quitting!")
+                log.log(logging.INFO, "CTRL-C pressed twice: Quitting!")
                 break
         except:
             logging.exception("Server ERROR")

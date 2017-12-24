@@ -78,16 +78,17 @@ class Client:
         print('Login with ', self.uuid, '\n')
         self.password = getpass.getpass("\nPassword: ")
 
-        # TODO: save cipher spec
-        # Chose cipher spec
-        cipher_spec = Client.choose_cipher_spec()
-        cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
-
         # Generate RSA keys and save them into file
         key_dir = DIR_PATH + '/keys/' + str(self.uuid)
         if not os.path.exists(key_dir):
+            # Chose cipher spec
+            cipher_spec = Client.choose_cipher_spec()
+            cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
+
+            # Create directory to save keys
             os.makedirs(key_dir)
-            priv_key, pub_key = generate_rsa_keypair(cipher_suite['rsa']['key_size'])
+            priv_key, pub_key = \
+                generate_rsa_keypair(cipher_suite['rsa']['key_size'])
 
             # Save private key to ciphered file
             save_to_ciphered_file(
@@ -100,7 +101,8 @@ class Client:
             save_to_file(pub_key, self.uuid)
 
             # Initialize session with the server
-            self.secure = ClientSecure(priv_key, pub_key, cipher_spec, cipher_suite)
+            self.secure = ClientSecure(self.uuid, priv_key, pub_key,
+                                       cipher_spec, cipher_suite)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
@@ -112,6 +114,7 @@ class Client:
             log(logging.DEBUG, "Logging in")
 
             # Get correct password
+            text = "\nIncorrect password. Please type the correct password: "
             while True:
                 try:
                     # Read private key from ciphered file
@@ -121,13 +124,13 @@ class Client:
                     )
                     break
                 except:
-                    self.password = getpass.getpass("\nPassword incorrect. Please type the correct password: ")
+                    self.password = getpass.getpass(text)
 
             # Read public key from regular file
             pub_key = read_from_file(self.uuid)
 
             # Initialize session with the server
-            self.secure = ClientSecure(priv_key, pub_key, cipher_spec, cipher_suite)
+            self.secure = ClientSecure(self.uuid, priv_key, pub_key)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 

@@ -51,6 +51,7 @@ class ServerSecure:
         return crypto.load_certificate(crypto.FILETYPE_PEM, base64.b64decode(cert.encode()))
 
     def __init__(self, cipher_spec=None):
+        self.uuid = None
         self.cipher_spec = cipher_spec
         self.cipher_suite = {}
         self.number_of_hash_derivations = None
@@ -68,9 +69,10 @@ class ServerSecure:
     def uncapsulate_insecure_message(self, payload):
         log.log(logging.DEBUG, "INSECURE MESSAGE RECEIVED: %r" % payload)
 
-        if payload['cipher_spec'] is not None:
-            self.cipher_spec = payload['cipher_spec']
-            self.cipher_suite = ServerSecure.get_cipher_suite(self.cipher_spec)
+        self.uuid = payload['uuid']
+        self.cipher_spec = payload['cipher_spec'] if payload['cipher_spec'] is not None \
+            else server.Server.registry.getUser(self.uuid).description['secdata']['cipher_spec']
+        self.cipher_suite = ServerSecure.get_cipher_suite(self.cipher_spec)
         self.peer_pub_value = ServerSecure.deserialize_key(
             payload['secdata']['dhpubvalue'])
         self.peer_salt = base64.b64decode(payload['secdata']['salt'].encode())

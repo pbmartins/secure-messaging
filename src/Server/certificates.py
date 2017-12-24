@@ -4,10 +4,15 @@ from cryptography.hazmat.primitives import serialization
 from cryptography import x509
 import wget
 import os
+import base64
 
 
 # Only accepts OpenSSL X509 Objects
 class X509Certificates:
+    @staticmethod
+    def deserialize_certificate(cert):
+        return crypto.load_certificate(crypto.FILETYPE_PEM,
+                                       base64.b64decode(cert.encode()))
     @classmethod
     def get_extension(cls, cert, short_name):
         for i in (0, cert.get_extension_count()):
@@ -43,15 +48,18 @@ class X509Certificates:
         self.crls = {}
         self.certs = {}
 
-        self.import_user_certs(users)
         self.store = crypto.X509Store()
+        self.import_user_certs(users)
         self.import_certs()
         self.import_keys()
 
     def import_user_certs(self, users):
-        for user in users:
-            self.certs[user['id']] = user['secdata']['cccertificate']
-            self.store.add_cert(user['secdata']['cccertificate'])
+        for uid in users:
+            user = users[uid]
+            cc_cert = X509Certificates.deserialize_certificate(
+                user['description']['secdata']['cccertificate'])
+            self.certs[user['id']] = cc_cert
+            self.store.add_cert(cc_cert)
 
     def import_certs(self):
         files = [f for f in os.listdir('./xca-server')]

@@ -51,7 +51,8 @@ class ClientSecure:
     def deserialize_certificate(cert):
         return crypto.load_certificate(crypto.FILETYPE_PEM, base64.b64decode(cert.encode()))
 
-    def __init__(self, private_key, public_key, cipher_spec=None, cipher_suite=None):
+    def __init__(self, uuid, private_key, public_key, cipher_spec=None, cipher_suite=None):
+        self.uuid = uuid
         self.cipher_spec = cipher_spec
         self.cipher_suite = cipher_suite
         self.number_of_hash_derivations = 1
@@ -73,12 +74,12 @@ class ClientSecure:
         self.priv_value, self.pub_value = generate_ecdh_keypair()
         salt = os.urandom(16)
         self.salt_list += [salt]
-        nounce = base64.b64encode(
-            get_nounce(16, b'', self.cipher_suite['sha']['size'])).decode()
+        nounce = self.uuid
         self.nounces += [nounce]
 
         message = {
             'type': 'insecure',
+            'uuid': self.uuid,
             'secdata': {
                 'dhpubvalue': ClientSecure.serialize_key(self.pub_value),
                 'salt': base64.b64encode(salt).decode(),
@@ -148,10 +149,12 @@ class ClientSecure:
         return message
 
     def uncapsulate_secure_message(self, message):
+        print(self.cipher_spec)
         if self.cipher_spec is None:
             self.cipher_spec = message['cipher_spec']
-            ClientSecure.get_cipher_suite(self.cipher_spec)
+            self.cipher_suite = ClientSecure.get_cipher_suite(self.cipher_spec)
 
+        print(self.cipher_spec)
         assert message['cipher_spec'] == self.cipher_spec
         """
         # Verify signature and certificate validity
