@@ -14,10 +14,8 @@ import time
 import logging
 from src.Server.log import logger
 from src.Server.server_client import *
-from src.Server.server_registry import *
 from src.Server.server_actions import *
 from src.Client.cipher_utils import *
-from src.Server.certificates import *
 
 # Server address
 HOST = ""  # All available interfaces
@@ -29,8 +27,8 @@ MAX_BUFSIZE = 64 * 1024
 
 
 class Server:
-    registry = ServerRegistry()
-    certificates = X509Certificates(registry.users)
+
+    server_actions = ServerActions()
 
     def __init__(self, host, port):
         self.ss = socket(AF_INET, SOCK_STREAM)  # the server socket (IP \ TCP)
@@ -39,8 +37,6 @@ class Server:
         self.ss.listen(10)
         logger.log(logging.INFO, "Secure IM server listening on %s" %
             str(self.ss.getsockname()))
-
-        self.server_actions = ServerActions()
 
         # clients to manage (indexed by socket and by name):
         self.clients = {}  # clients (key is socket)
@@ -71,7 +67,7 @@ class Server:
                 self.clients[csock])
             return
 
-        client = Client(csock, addr)
+        client = Client(csock, addr, Server.server_actions.registry, Server.server_actions.certificates)
         self.clients[client.socket] = client
         logger.log(logging.DEBUG, "Client added: %s" % client)
 
@@ -83,7 +79,6 @@ class Server:
             return
 
         client = self.clients[csock]
-
         del self.clients[client.socket]
         client.close()
         logger.log(logging.DEBUG, "Client deleted: %s" % client)
@@ -117,11 +112,13 @@ class Server:
                 reqs = client.parseReqs(data)
                 for s_req in reqs:
                     sec_req = json.loads(s_req)
+
                     # Uncapsulate payload based on its secure type
                     req, nounce = client.secure.uncapsulate_insecure_message(sec_req) \
                         if sec_req['type'] == 'insecure' \
                         else client.secure.uncapsulate_secure_message(sec_req)
-                    self.server_actions.handleRequest(s, req, self.clients[s], nounce)
+
+                    Server.server_actions.handleRequest(s, req, self.clients[s], nounce)
             else:
                 self.delClient(s)
 
@@ -206,7 +203,7 @@ def main():
                 logger.log(logging.INFO, "CTRL-C pressed twice: Quitting!")
                 break
         except:
-            logger.exception("Server ERROR")
+            logging.exception("Server ERROR")
             if serv is not (None):
                 serv.stop()
             time.sleep(10)

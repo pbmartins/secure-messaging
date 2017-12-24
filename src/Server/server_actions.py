@@ -2,10 +2,12 @@ import logging
 from src.Server.log import logger
 from src.Server.server_registry import *
 from src.Server.server_client import *
+from src.Server.certificates import *
 import json
 
 
 class ServerActions:
+
     def __init__(self):
 
         self.messageTypes = {
@@ -22,6 +24,7 @@ class ServerActions:
         }
 
         self.registry = ServerRegistry()
+        self.certificates = X509Certificates(self.registry.users)
 
     def handleRequest(self, s, request, client, nounce):
         """Handle a request from a client socket.
@@ -78,6 +81,7 @@ class ServerActions:
             return
 
         me = self.registry.addUser(data)
+        print("(processCreate) Added new user:", self.registry.users)
         # TODO: Add security data to user profile
         client.sendResult({"result": me.id}, nounce)
 

@@ -13,14 +13,14 @@ sys.tracebacklimit = 30
 class Client:
     count = 0
 
-    def __init__(self, socket, addr):
+    def __init__(self, socket, addr, registry, certs):
         self.socket = socket
         self.bufin = ""
         self.bufout = ""
         self.addr = addr
         self.id = None
         self.sec_data = None
-        self.secure = ServerSecure()
+        self.secure = ServerSecure(registry=registry, certs=certs)
 
         # TODO: Apply security constraints
 

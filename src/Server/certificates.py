@@ -1,3 +1,5 @@
+from src.Server.log import logger
+from src.Server.lib import *
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -5,6 +7,7 @@ from cryptography import x509
 import wget
 import os
 import base64
+import logging
 
 
 # Only accepts OpenSSL X509 Objects
@@ -50,8 +53,11 @@ class X509Certificates:
 
         self.store = crypto.X509Store()
         self.import_user_certs(users)
-        self.import_certs()
+        self.import_certs(XCA_DIR)
+        self.import_certs(CERTS_DIR)
         self.import_keys()
+
+        print("times")
 
     def import_user_certs(self, users):
         for uid in users:
@@ -61,27 +67,47 @@ class X509Certificates:
             self.certs[user['id']] = cc_cert
             self.store.add_cert(cc_cert)
 
-    def import_certs(self):
-        files = [f for f in os.listdir('./xca-server')]
+    def import_certs(self, directory):
+        files = [f for f in os.listdir(directory)]
+        certs = {}
 
         for f_name in files:
-            if f_name.split('.')[1] not in ['der', 'cer', 'crt']:
-                continue
+            cert = None
 
-            mode = 'rb' if '.cer' in f_name else 'r'
-            f = open('./xca-server/' + f_name, mode)
-            if mode == 'r':
-                cert = crypto.X509.from_cryptography(
-                    x509.load_pem_x509_certificate(f.read().encode(),
-                                                   default_backend()))
-            else:
-                cert = crypto.X509.from_cryptography(
-                    x509.load_der_x509_certificate(f.read(), default_backend()))
+            # Trying to read it as PEM
+            try:
+                f = open(directory + f_name, 'rb')
+                cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+            except crypto.Error:
+                logger.log(logging.DEBUG, "Not a PEM Certificate: %r" % f_name)
+            finally:
+                f.close()
 
-            if f_name == 'ServerCA':
-                self.ca_cert = cert
-            else:
+            if cert is None:
+                # Trying to read it as DER
+                try:
+                    f = open(directory + f_name, 'rb')
+                    cert = crypto.load_certificate(
+                        crypto.FILETYPE_ASN1, f.read())
+                    logger.log(logging.DEBUG,
+                               "Loaded DER Certificate: %r" % f_name)
+                    f.close()
+                except crypto.Error:
+                    logger.log(logging.DEBUG,
+                               "Unable to load certificate: %r" % f_name)
+                    f.close()
+                    continue
+
+            if cert.get_subject().commonName == 'SecurityServer':
                 self.cert = cert
+            elif cert.get_subject().commonName == 'ServerCA':
+                self.ca_cert = cert
+            elif cert.get_subject().commonName not in self.certs.keys():
+                certs[cert.get_subject().commonName] = cert
+                self.certs[cert.get_subject().commonName] = cert
+
+        for subject in certs.keys():
+            self.store.add_cert(certs[subject])
 
     def import_keys(self):
         f = open('./xca-server/SecurityServer.pem', 'rb')

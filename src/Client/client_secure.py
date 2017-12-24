@@ -157,7 +157,8 @@ class ClientSecure:
         assert message['cipher_spec'] == self.cipher_spec
         """
         # Verify signature and certificate validity
-        peer_certificate = ClientSecure.deserialize_certificate(message['certificate'])
+        peer_certificate = \
+            ClientSecure.deserialize_certificate(message['certificate'])
         assert self.certificates.validate_cert(peer_certificate)
         try:
             peer_certificate.get_pubkey().to_cryptography_key().verify(
@@ -244,8 +245,6 @@ class ClientSecure:
             }
 
     def cipher_message_to_user(self, payload_type, message, user_id):
-        # TODO: this assert is really needed?
-        #assert message['cipher_spec'] == self.cipher_spec
         assert user_id in self.user_certificates
 
         # Cipher payload
@@ -289,8 +288,6 @@ class ClientSecure:
         return base64.b64encode(json.dumps(payload).encode()).decode()
 
     def decipher_message_from_user(self, payload, peer_certificate):
-        # TODO: this assert is really needed?
-        #assert payload['cipher_spec'] == self.cipher_spec
         """
         # Verify signature and certificate validity
         peer_certificate = ClientSecure.deserialize_certificate(peer_certificate)

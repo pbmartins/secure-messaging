@@ -3,6 +3,7 @@ from src.Client.cc_interface import *
 from src.Client.cipher_utils import *
 from src.Client.client_secure import *
 from src.Client.log import logger
+from src.Client.lib import *
 import json
 import getpass
 import base64
@@ -17,9 +18,6 @@ PORT = 8080  # The server port
 BUFSIZE = 512 * 1024
 TERMINATOR = "\n\n"
 MAX_BUFSIZE = 64 * 1024
-
-DIR_PATH = os.path.dirname(os.path.realpath(__file__))
-
 
 class Client:
     @staticmethod
@@ -79,7 +77,7 @@ class Client:
         self.password = getpass.getpass("\nPassword: ")
 
         # Generate RSA keys and save them into file
-        key_dir = DIR_PATH + '/keys/' + str(self.uuid)
+        key_dir = KEYS_DIR + str(self.uuid)
         if not os.path.exists(key_dir):
             # Chose cipher spec
             cipher_spec = Client.choose_cipher_spec()

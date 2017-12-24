@@ -1,8 +1,10 @@
+from src.Client.log import logger
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography import x509
 import wget
 import os
+import logging
 
 
 # Only accepts OpenSSL X509 Objects
@@ -45,18 +47,31 @@ class X509Certificates:
         files = [f for f in os.listdir('./certs')]
 
         for f_name in files:
-            if f_name.split('.')[1] not in ['der', 'cer', 'crt']:
-                continue
+            cert = None
 
-            mode = 'rb' if '.cer' in f_name else 'r'
-            f = open('./certs/' + f_name, mode)
-            if mode == 'r':
-                cert = crypto.X509.from_cryptography(
-                    x509.load_pem_x509_certificate(f.read().encode(),
-                                                   default_backend()))
-            else:
-                cert = crypto.X509.from_cryptography(
-                    x509.load_der_x509_certificate(f.read(), default_backend()))
+            # Trying to read it as PEM
+            try:
+                f = open('./certs/' + f_name, 'rb')
+                cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+            except crypto.Error:
+                logger.log(logging.DEBUG, "Not a PEM Certificate: %r" % f_name)
+            finally:
+                f.close()
+
+            if cert is None:
+                # Trying to read it as DER
+                try:
+                    f = open('./certs/' + f_name, 'rb')
+                    cert = crypto.load_certificate(
+                        crypto.FILETYPE_ASN1, f.read())
+                    logger.log(logging.DEBUG,
+                               "Loaded DER Certificate: %r" % f_name)
+                    f.close()
+                except crypto.Error:
+                    logger.log(logging.DEBUG,
+                               "Unable to load certificate: %r" % f_name)
+                    f.close()
+                    continue
 
             if cert.get_subject().commonName not in self.certs.keys():
                 self.certs[cert.get_subject().commonName] = cert
