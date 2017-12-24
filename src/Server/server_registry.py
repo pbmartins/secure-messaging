@@ -1,6 +1,6 @@
 import os
 import sys
-from src.Server import log
+from src.Server.log import logger
 import logging
 import re
 import json
@@ -66,7 +66,7 @@ class ServerRegistry:
             f.write(data)
 
     def readFromFile(self, path):
-        log.log(logging.DEBUG, "Read from file: " + path)
+        logger.log(logging.DEBUG, "Read from file: " + path)
         with open(path, "r") as f:
             return f.read()
 
@@ -108,7 +108,7 @@ class ServerRegistry:
         if 'type' in list(description.keys()):
             del description['type']
 
-        log.log(logging.DEBUG, "add user \"%s\": %s" % (uid, description))
+        logger.log(logging.DEBUG, "add user \"%s\": %s" % (uid, description))
 
         user = UserDescription(uid, description)
         self.users[uid] = user
@@ -123,7 +123,7 @@ class ServerRegistry:
         path = ""
         try:
             path = os.path.join(MBOXES_PATH, str(uid), DESC_FILENAME)
-            log.log(logging.DEBUG, "add user description " + path)
+            logger.log(logging.DEBUG, "add user description " + path)
             self.saveOnFile(path, json.dumps(description))
         except:
             logging.exception("Cannot create description file " + path)
@@ -133,9 +133,9 @@ class ServerRegistry:
 
     def listUsers(self, uid):
         if uid == 0:
-            log.log(logging.DEBUG, "Looking for all connected users")
+            logger.log(logging.DEBUG, "Looking for all connected users")
         else:
-            log.log(logging.DEBUG, "Looking for \"%d\"" % uid)
+            logger.log(logging.DEBUG, "Looking for \"%d\"" % uid)
 
         if uid != 0:
             user = self.getUser(uid)
@@ -160,7 +160,7 @@ class ServerRegistry:
         return self.userMessages(self.userReceiptBox(uid), "[0-9]+_[0-9]+")
 
     def userMessages(self, path, pattern):
-        log.log(logging.DEBUG, "Look for files at " +
+        logger.log(logging.DEBUG, "Look for files at " +
             path + " with pattern " + pattern)
 
         messageList = []
@@ -169,7 +169,7 @@ class ServerRegistry:
 
         try:
             for filename in os.listdir(path):
-                log.log(logging.DEBUG, "\tFound file " + filename)
+                logger.log(logging.DEBUG, "\tFound file " + filename)
                 if re.match(pattern, filename):
                     messageList.append(filename)
         except:
@@ -217,7 +217,7 @@ class ServerRegistry:
             try:
                 f = os.path.join(path, msg)
                 path = os.path.join(path, "_" + msg)
-                log.log(logging.DEBUG, "Marking message " + msg + " as read")
+                logger.log(logging.DEBUG, "Marking message " + msg + " as read")
                 print(f)
                 print(path)
                 os.rename(f, path)
@@ -236,7 +236,7 @@ class ServerRegistry:
 
         matches = re.match(pattern, msg)
         if not matches:
-            log.log(logging.ERROR,
+            logger.log(logging.ERROR,
                 "Internal error, wrong message file name format!")
             sys.exit(2)
 
@@ -261,7 +261,7 @@ class ServerRegistry:
         m = pattern.match(msg)
 
         if not m:
-            log.log(logging.ERROR,
+            logger.log(logging.ERROR,
                 "Internal error, wrong message file name (" + msg + ") format!")
             sys.exit(2)
 

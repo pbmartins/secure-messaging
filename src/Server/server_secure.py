@@ -1,5 +1,6 @@
 from src.Client.cipher_utils import *
-from src.Server import certificates, server, log
+from src.Server import certificates, server
+from src.Server.log import logger
 from cryptography.exceptions import *
 from OpenSSL import crypto
 import os
@@ -67,7 +68,7 @@ class ServerSecure:
         self.user_certificates = {}
 
     def uncapsulate_insecure_message(self, payload):
-        log.log(logging.DEBUG, "INSECURE MESSAGE RECEIVED: %r" % payload)
+        logger.log(logging.DEBUG, "INSECURE MESSAGE RECEIVED: %r" % payload)
 
         self.uuid = payload['uuid']
         self.cipher_spec = payload['cipher_spec'] if payload['cipher_spec'] is not None \
@@ -132,7 +133,7 @@ class ServerSecure:
             'cipher_spec': self.cipher_spec
         }
 
-        log.log(logging.DEBUG, "SECURE MESSAGE SENT: %r" % message)
+        logger.log(logging.DEBUG, "SECURE MESSAGE SENT: %r" % message)
 
         return message
 
@@ -156,7 +157,7 @@ class ServerSecure:
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
 
-        log.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
+        logger.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
 
         # Derive AES key and decipher payload
         self.number_of_hash_derivations = message['payload']['secdata']['index']

@@ -1,6 +1,7 @@
 from src.Client.cipher_utils import *
 from src.Client import cc_interface as cc
-from src.Client import certificates, log
+from src.Client import certificates
+from src.Client.log import logger
 from cryptography.exceptions import *
 from OpenSSL import crypto
 import os
@@ -88,7 +89,7 @@ class ClientSecure:
             'nounce': nounce,
             'cipher_spec': self.cipher_spec
         }
-        log.log(logging.DEBUG, "INSECURE MESSAGE SENT: %r" % message)
+        logger.log(logging.DEBUG, "INSECURE MESSAGE SENT: %r" % message)
 
         return message
 
@@ -144,17 +145,15 @@ class ClientSecure:
             'cipher_spec': self.cipher_spec
         }
 
-        log.log(logging.DEBUG, "SECURE MESSAGE SENT: %r" % message)
+        logger.log(logging.DEBUG, "SECURE MESSAGE SENT: %r" % message)
 
         return message
 
     def uncapsulate_secure_message(self, message):
-        print(self.cipher_spec)
         if self.cipher_spec is None:
             self.cipher_spec = message['cipher_spec']
             self.cipher_suite = ClientSecure.get_cipher_suite(self.cipher_spec)
 
-        print(self.cipher_spec)
         assert message['cipher_spec'] == self.cipher_spec
         """
         # Verify signature and certificate validity
@@ -174,7 +173,7 @@ class ClientSecure:
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
 
-        log.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
+        logger.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
 
         # Check if it corresponds to a previously sent message
         if not message['payload']['nounce'] in self.nounces:

@@ -2,7 +2,7 @@ from socket import *
 from src.Client.cc_interface import *
 from src.Client.cipher_utils import *
 from src.Client.client_secure import *
-from src.Client.log import *
+from src.Client.log import logger
 import json
 import getpass
 import base64
@@ -106,12 +106,12 @@ class Client:
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
-            log(logging.DEBUG, "Secure session with server established")
+            logger.log(logging.DEBUG, "Secure session with server established")
             # Create user account
             self.create_user(cipher_spec)
 
         else:
-            log(logging.DEBUG, "Logging in")
+            logger.log(logging.DEBUG, "Logging in")
 
             # Get correct password
             text = "\nIncorrect password. Please type the correct password: "
@@ -134,10 +134,10 @@ class Client:
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
-            log(logging.DEBUG, "Secure session with server established")
+            logger.log(logging.DEBUG, "Secure session with server established")
 
     def create_user(self, cipher_spec):
-        log(logging.DEBUG, "Creating user account")
+        logger.log(logging.DEBUG, "Creating user account")
         payload = {
             'type': 'create',
             'uuid': self.uuid,
@@ -161,7 +161,7 @@ class Client:
         else:
             self.user_id = data['result']
 
-        log(logging.DEBUG, "User account created")
+            logger.log(logging.DEBUG, "User account created")
 
     def list_message_boxes(self):
         payload = {
@@ -390,6 +390,12 @@ def main():
     Show main menu.
     :return: 
     """
+
+    logging.basicConfig(
+        stream=sys.stdout,
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
 
     client = Client()
 

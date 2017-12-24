@@ -1,5 +1,5 @@
 import logging
-from src.Server import log
+from src.Server.log import logger
 from src.Server.server_secure import *
 import json
 import sys
@@ -39,7 +39,7 @@ class Client:
         This is called whenever data is available from client socket."""
 
         if len(self.bufin) + len(data) > MAX_BUFSIZE:
-            log.log(logging.ERROR, "Client (%s) buffer exceeds MAX BUFSIZE. %d > %d" %
+            logger.log(logging.ERROR, "Client (%s) buffer exceeds MAX BUFSIZE. %d > %d" %
                 (self, len(self.bufin) + len(data), MAX_BUFSIZE))
             self.bufin = ""
 
@@ -63,7 +63,7 @@ class Client:
         Will log error if called on a client with closed socket.
         Never fails.
         """
-        log.log(logging.INFO, "Client.close(%s)" % self)
+        logger.log(logging.INFO, "Client.close(%s)" % self)
         try:
             self.socket.close()
         except:
