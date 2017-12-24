@@ -10,12 +10,6 @@ import logging
 
 class ServerSecure:
     @staticmethod
-    def load_sec_data(id):
-        # TODO: load data such as cipher_spec, certificates, and public keys
-        # TODO: from file if user exists
-        pass
-
-    @staticmethod
     def get_cipher_suite(cipher_spec):
         specs = cipher_spec.split('-')
         aes = specs[1].split('_')
