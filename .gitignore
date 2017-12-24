@@ -1,6 +1,6 @@
 *.DS_STORE
 *.pyc
-src/Server/mboxes
-src/Server/receipts
-src/Client/keys
+src/Server/mboxes/
+src/Server/receipts/
+src/Client/keys/
 .idea
