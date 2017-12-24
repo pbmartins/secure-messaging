@@ -232,15 +232,18 @@ class ClientSecure:
         return resource_payload
 
     def uncapsulate_resource_message(self, resource_payload):
-        # Save user certificate
+        # Save user public values, certificate and cipher_spec
         for user in resource_payload['result']:
             self.user_certificates[user['id']] = {
                 'pub_key': ClientSecure.deserialize_key(user['rsapubkey']),
-                'certificate:': ClientSecure.deserialize_certificate(user['certificate'])
+                'cc_pub_key': ClientSecure.deserialize_key(user['ccpubkey']),
+                'certificate:': ClientSecure.deserialize_certificate(user['cccertificate']),
+                'cipher_spec': ClientSecure.get_cipher_suite(user['cipher_spec'])
             }
 
     def cipher_message_to_user(self, payload_type, message, user_id):
-        assert message['cipher_spec'] == self.cipher_spec
+        # TODO: this assert is really needed?
+        #assert message['cipher_spec'] == self.cipher_spec
         assert user_id in self.user_certificates
 
         # Cipher payload
@@ -249,9 +252,10 @@ class ClientSecure:
             aes_key, self.cipher_suite['aes']['mode'])
 
         encryptor = aes_cipher.encryptor()
-        ciphered_message = encryptor.update(message) + encryptor.finalize()
+        ciphered_message = encryptor.update(json.dumps(message).encode()) + \
+                           encryptor.finalize()
 
-        peer_rsa_pubkey = self.user_certificates[user_id]
+        peer_rsa_pubkey = self.user_certificates[user_id]['pub_key']
 
         # Cipher AES key and IV
         aes_iv_key = aes_iv + aes_key
@@ -267,11 +271,11 @@ class ClientSecure:
                 self.cipher_suite['sha']['size'])).decode()
 
         payload = {
-            'payload': json.dumps({
+            'payload': {
                 payload_type: base64.b64encode(ciphered_message).decode(),
                 'nounce': nounce,
                 'key_iv': base64.b64encode(ciphered_aes_iv_key).decode()
-            }).encode(),
+            },
             'signature': None,
             'cipher_spec': self.cipher_spec
         }
@@ -280,10 +284,11 @@ class ClientSecure:
         #signature = cc.sign(payload['payload'])
         #payload['signature'] = signature
 
-        return payload
+        return base64.b64encode(json.dumps(payload).encode()).decode()
 
     def decipher_message_from_user(self, payload, peer_certificate):
-        assert payload['cipher_spec'] == self.cipher_spec
+        # TODO: this assert is really needed?
+        #assert payload['cipher_spec'] == self.cipher_spec
         """
         # Verify signature and certificate validity
         peer_certificate = ClientSecure.deserialize_certificate(peer_certificate)
@@ -299,7 +304,8 @@ class ClientSecure:
             return "Invalid signature"
         """
 
-        payload['payload'] = json.loads(payload['payload'].encode())
+        # Decode payload
+        payload = json.loads(base64.b64decode(payload))
 
         # Decipher AES key and IV
         aes_iv_key = rsa_decipher(
@@ -319,4 +325,4 @@ class ClientSecure:
         deciphered_message = decryptor.update(base64.b64decode(
             payload['payload']['message'].encode())) + decryptor.finalize()
 
-        return deciphered_message
+        return deciphered_message.decode()

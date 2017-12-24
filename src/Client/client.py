@@ -59,7 +59,6 @@ class Client:
         self.login()
 
     def send_payload(self, message):
-        #print(message)
         to_send = json.dumps(message)
         while len(to_send):
             self.ss.send(to_send[:BUFSIZE].encode('utf-8')
@@ -79,12 +78,14 @@ class Client:
         print('Login with ', self.uuid, '\n')
         self.password = getpass.getpass("\nPassword: ")
 
+        # TODO: save cipher spec
+        # Chose cipher spec
+        cipher_spec = Client.choose_cipher_spec()
+        cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
+
         # Generate RSA keys and save them into file
         key_dir = DIR_PATH + '/keys/' + str(self.uuid)
         if not os.path.exists(key_dir):
-            cipher_spec = Client.choose_cipher_spec()
-            cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
-
             os.makedirs(key_dir)
             priv_key, pub_key = generate_rsa_keypair(cipher_suite['rsa']['key_size'])
 
@@ -105,36 +106,47 @@ class Client:
 
             log(logging.DEBUG, "Secure session with server established")
             # Create user account
-            self.create_user()
+            self.create_user(cipher_spec)
 
         else:
             log(logging.DEBUG, "Logging in")
-            # Read private key from ciphered file
-            priv_key = read_from_ciphered_file(
-                self.password,
-                self.uuid
-            )
+
+            # Get correct password
+            while True:
+                try:
+                    # Read private key from ciphered file
+                    priv_key = read_from_ciphered_file(
+                        self.password,
+                        self.uuid
+                    )
+                    break
+                except:
+                    self.password = getpass.getpass("\nPassword incorrect. Please type the correct password: ")
 
             # Read public key from regular file
             pub_key = read_from_file(self.uuid)
 
             # Initialize session with the server
-            self.secure = ClientSecure(priv_key, pub_key)
+            self.secure = ClientSecure(priv_key, pub_key, cipher_spec, cipher_suite)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
             log(logging.DEBUG, "Secure session with server established")
 
-    def create_user(self):
+    def create_user(self, cipher_spec):
         log(logging.DEBUG, "Creating user account")
         payload = {
             'type': 'create',
             'uuid': self.uuid,
             'secdata': {
                 'rsapubkey':
+                    ClientSecure.serialize_key(self.secure.public_key),
+                'ccpubkey':
                     ClientSecure.serialize_key(
                         self.cc_certificate.get_pubkey().to_cryptography_key()),
-                'cccertificate': ClientSecure.serialize_certificate(self.cc_certificate)
+                'cccertificate': ClientSecure.serialize_certificate(
+                        self.cc_certificate),
+                'cipher_spec': cipher_spec
             }
         }
 
@@ -247,11 +259,10 @@ class Client:
             if not len(line) and not len(last_line):
                 break
 
-            payload['msg'] = json.dumps(payload['msg'])
-            payload['copy'] = payload['msg']
+        payload['copy'] = payload['msg']
 
         # Get receiver public key and certificate
-        resource_payload = self.secure.encapsulate_resource_message(payload['dst'])
+        resource_payload = self.secure.encapsulate_resource_message([payload['dst']])
         if resource_payload is not None:
             data = self.send_payload(
                 self.secure.encapsulate_secure_message(resource_payload))
@@ -260,7 +271,7 @@ class Client:
 
         # Cipher message
         payload['msg'] = self.secure.cipher_message_to_user(
-            payload['msg'], 'message', payload['dst'])
+            'message', payload['msg'], payload['dst'])
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
@@ -292,11 +303,14 @@ class Client:
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
+
         if 'error' in data:
             print("ERROR: " + data['error'])
         else:
             print("Message Sender ID: " + data['result'][0])
-            message = self.secure.decipher_message_from_user(data['result'][1])
+            # Decipher message and remove trailing newlines
+            message = self.secure.decipher_message_from_user(
+                data['result'][1], None).rstrip()
             print("Message: " + message)
 
             # Send receipt
@@ -310,7 +324,7 @@ class Client:
         }
 
         # Get receiver public key and certificate
-        resource_payload = self.secure.encapsulate_resource_message(payload['id'])
+        resource_payload = self.secure.encapsulate_resource_message([payload['id']])
         if resource_payload is not None:
             data = self.send_payload(
                 self.secure.encapsulate_secure_message(resource_payload))

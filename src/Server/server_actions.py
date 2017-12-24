@@ -48,7 +48,8 @@ class ServerActions:
                 self.messageTypes[req['type']](req, client, nounce)
             else:
                 log(logging.ERROR, "Invalid message type: " +
-                    str(req['type']) + " Should be one of: " + str(list(self.messageTypes.keys())))
+                    str(req['type']) + " Should be one of: " + str(
+                    list(self.messageTypes.keys())))
                 client.sendResult({"error": "unknown request"})
 
         except Exception as e:
@@ -65,7 +66,8 @@ class ServerActions:
 
         uuid = data['uuid']
         if not isinstance(uuid, int):
-            log(logging.ERROR, "No valid \"uuid\" field in \"create\" message: " +
+            log(logging.ERROR,
+                "No valid \"uuid\" field in \"create\" message: " +
                 json.dumps(data))
             client.sendResult({"error": "wrong message format"}, nounce)
             return
@@ -124,7 +126,8 @@ class ServerActions:
             return
 
         client.sendResult({"result": [self.registry.userAllMessages(user),
-                                      self.registry.userSentMessages(user)]}, nounce)
+                                      self.registry.userSentMessages(user)]},
+                          nounce)
 
     def processSend(self, data, client, nounce):
         log(logging.DEBUG, "%s" % json.dumps(data))
@@ -147,8 +150,9 @@ class ServerActions:
 
         if not self.registry.userExists(dstId):
             log(logging.ERROR,
-                "Unknown destination id for \"send\" message: " + json.dumps(data))
-            client.sendResult({"error": "wrong parameters"},nounce)
+                "Unknown destination id for \"send\" message: " + json.dumps(
+                    data))
+            client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
         # Save message and copy
@@ -199,7 +203,9 @@ class ServerActions:
         receipt = str(data['receipt'])
 
         if not self.registry.messageWasRed(str(fromId), msg):
-            log(logging.ERROR, "Unknown, or not yet red, message for \"receipt\" request " + json.dumps(data))
+            log(logging.ERROR,
+                "Unknown, or not yet red, message for \"receipt\" request " + json.dumps(
+                    data))
             client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
@@ -212,12 +218,13 @@ class ServerActions:
             log(logging.ERROR, "Badly formated \"status\" message: " +
                 json.dumps(data))
             client.sendResult({"error": "wrong message format"}, nounce)
-        
+
         fromId = int(data['id'])
         msg = str(data["msg"])
 
         if not self.registry.copyExists(fromId, msg):
-            log(logging.ERROR, "Unknown message for \"status\" request: " + json.dumps(data))
+            log(logging.ERROR,
+                "Unknown message for \"status\" request: " + json.dumps(data))
             client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
@@ -234,15 +241,21 @@ class ServerActions:
 
         result = []
         for user in data['ids']:
-            pub_key = self.registry.users[user]['secdata']['rsapubkey']\
+            pub_key = self.registry.users[user]['description']['secdata']['rsapubkey'] \
                 if user in self.registry.users else None
-            certificate = self.registry.users[user]['secdata']['cccertificate']\
+            cc_pub_key = self.registry.users[user]['description']['secdata']['ccpubkey'] \
+                if user in self.registry.users else None
+            certificate = self.registry.users[user]['description']['secdata']['cccertificate'] \
+                if user in self.registry.users else None
+            cipher_spec = self.registry.users[user]['description']['secdata']['cipher_spec'] \
                 if user in self.registry.users else None
             result += [
                 {
                     'id': user,
                     'rsapubkey': pub_key,
-                    'cccertificate': certificate
+                    'ccpubkey': cc_pub_key,
+                    'cccertificate': certificate,
+                    'cipher_spec': cipher_spec
                 }
             ]
         client.sendResult({"result": result}, nounce)
