@@ -18,8 +18,7 @@ class Client:
         self.bufin = ""
         self.bufout = ""
         self.addr = addr
-        Client.count += 1
-        self.id = Client.count
+        self.id = None
         self.sec_data = None
         self.secure = ServerSecure()
 
@@ -47,7 +46,6 @@ class Client:
         self.bufin += data
         reqs = self.bufin.split(TERMINATOR)
         self.bufin = reqs[-1]
-        #print(reqs[:-1])
         return reqs[:-1]
 
     def sendResult(self, obj, nounce):
