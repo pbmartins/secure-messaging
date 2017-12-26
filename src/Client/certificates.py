@@ -19,7 +19,6 @@ class X509Certificates:
 
     @classmethod
     def get_crl_url(cls, cert):
-        print(cert.get_subject().commonName)
         extension = cls.get_extension(cert, b'crlDistributionPoints')
         try:
             value = extension.get_data()
@@ -93,18 +92,14 @@ class X509Certificates:
         if issuer not in self.crls:
             crl_url = X509Certificates.get_crl_url(cert)
             if crl_url is not None:
-                crl_download = wget.download(crl_url, out=CRLS_DIR)
-                f = open(CRLS_DIR + crl_download, 'rb')
-                crl = crypto.CRL.from_cryptography(
-                    x509.load_der_x509_crl(f.read(), default_backend())
-                )
+                crl_download = wget.download(crl_url, out=CRLS_DIR[:-1])
+                f = open(crl_download, 'rb')
+                crl = crypto.load_crl(crypto.FILETYPE_ASN1, f.read())
 
                 self.crls[issuer] = CRLS_DIR + crl_download
         else:
             f = open(self.crls[issuer], 'rb')
-            crl = crypto.CRL.from_cryptography(
-                x509.load_der_x509_crl(f.read(), default_backend())
-            )
+            crl = crypto.load_crl(crypto.FILETYPE_ASN1, f.read())
 
         if crl is not None:
             revoked_serials = [int(c.get_serial(), 16) for c in crl.get_revoked()]
@@ -112,10 +107,8 @@ class X509Certificates:
 
         return True
 
-
     # TODO: Check all the chain
     def validate_cert(self, cert):
-        print(cert.get_subject().commonName)
         c = cert
         # Check if all certificates in the chain are valid
         while True:

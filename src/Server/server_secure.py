@@ -106,6 +106,7 @@ class ServerSecure:
         if not self.certs.validate_cert(peer_certificate):
             print("Invalid certificate")
         try:
+            print(self.cipher_suite['rsa']['sign']['cc']['padding'])
             rsa_verify(
                 peer_certificate.get_pubkey().to_cryptography_key(),
                 base64.b64decode(message['signature'].encode()),
