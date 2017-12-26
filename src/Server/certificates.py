@@ -3,12 +3,10 @@ from src.Server.lib import *
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from cryptography import x509
 import wget
 import os
 import base64
 import logging
-import pprint
 
 
 # Only accepts OpenSSL X509 Objects
@@ -125,18 +123,16 @@ class X509Certificates:
         issuer = cert.get_issuer().commonName
         if issuer not in self.crls:
             crl_download = wget.download(
-                X509Certificates.get_crl_url(cert), out=CRLS_DIR)
-            f = open(CRLS_DIR + crl_download, 'rb')
-            crl = crypto.CRL.from_cryptography(
-                x509.load_der_x509_crl(f.read(), default_backend())
-            )
+                X509Certificates.get_crl_url(cert), out=CRLS_DIR[:-1])
+            print(crl_download)
 
-            self.crls[issuer] = CRLS_DIR + crl_download
+            f = open(crl_download, 'rb')
+            crl = crypto.load_crl(crypto.FILETYPE_ASN1, f.read())
+
+            self.crls[issuer] = crl_download
         else:
             f = open(self.crls[issuer], 'rb')
-            crl = crypto.CRL.from_cryptography(
-                x509.load_der_x509_crl(f.read(), default_backend())
-            )
+            crl = crypto.load_crl(crypto.FILETYPE_ASN1, f.read())
 
         revoked_serials = [int(c.get_serial(), 16) for c in crl.get_revoked()]
         return cert.get_serial_number() not in revoked_serials
@@ -145,27 +141,22 @@ class X509Certificates:
     def validate_cert(self, cert):
         c = cert
 
-        pprint.pprint(self.certs.keys())
+        logger.log(logging.DEBUG, "Verifying certificate validity: %r"
+                   % cert.get_issuer.commonName)
         # Check if all certificates in the chain are valid
         while True:
-            pprint.pprint(cert.get_subject().commonName)
-            pprint.pprint(cert.get_issuer().commonName)
             if c.get_issuer().commonName not in self.certs.keys():
-                print("Not in certs")
                 return False
 
             if c.get_issuer().commonName == c.get_subject().commonName:
-                print("Self signed")
                 break
 
             if not self.check_expiration_or_revoked(c):
-                print("Revoked")
                 return False
             c = self.certs[c.get_issuer().commonName]
 
         # Check if the chain is valid
         try:
-            print("Cheking chain")
             # Create a certificate context using the store and
             # the certificate to be verified
             store_ctx = crypto.X509StoreContext(self.store, cert)
