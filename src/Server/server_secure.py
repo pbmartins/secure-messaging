@@ -100,7 +100,7 @@ class ServerSecure:
 
     def uncapsulate_secure_message(self, message):
         assert message['cipher_spec'] == self.cipher_spec
-
+        """
         # Verify signature and certificate validity
         peer_certificate = deserialize_certificate(message['certificate'])
         if not self.certs.validate_cert(peer_certificate):
@@ -115,7 +115,7 @@ class ServerSecure:
             )
         except InvalidSignature:
             return "Invalid signature"
-
+        """
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
 
@@ -145,9 +145,13 @@ class ServerSecure:
             base64.b64decode(message['payload']['secdata']['iv'].encode())
         )
 
-        decryptor = aes_cipher.decryptor()
-        deciphered_payload = decryptor.update(base64.b64decode(
-            message['payload']['message'].encode())) + decryptor.finalize()
-        deciphered_payload = json.loads(deciphered_payload.decode())
+        deciphered_payload = message['payload']['message']
+
+        # Decipher message, if present
+        if 'message' in message['payload']:
+            decryptor = aes_cipher.decryptor()
+            deciphered_payload = decryptor.update(base64.b64decode(
+                message['payload']['message'].encode())) + decryptor.finalize()
+            deciphered_payload = json.loads(deciphered_payload.decode())
 
         return deciphered_payload, message['payload']['nounce']

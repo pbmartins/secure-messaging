@@ -284,9 +284,11 @@ class Client:
             self.secure.uncapsulate_resource_message(
                 self.secure.uncapsulate_secure_message(data))
 
-        # Cipher message
+        # Cipher sender and receiver message
         payload['msg'] = self.secure.cipher_message_to_user(
             'message', payload['msg'], payload['dst'])
+        payload['copy'] = self.secure.cipher_message_to_user(
+            'message', payload['msg'], payload['src'])
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
@@ -332,10 +334,14 @@ class Client:
             self.receipt_message(data['result'][0], message, payload['id'])
 
     def receipt_message(self, message_id, message, receipt_user_id):
+        hash_algorithm = self.secure.cipher_suite['sha']['size']
+
         payload = {
             'type': 'receipt',
             'id': receipt_user_id,
-            'msg': message_id
+            'msg': message_id,
+            'receipt': base64.b64encode(
+                digest_payload(message, hash_algorithm)).decode()
         }
 
         # Get receiver public key and certificate
@@ -347,18 +353,14 @@ class Client:
                 self.secure.uncapsulate_secure_message(data))
 
         # Generate signed hash of timestamp|hashed message
-        hash_algorithm = self.secure.cipher_suite['sha']['size']
-        payload['hashed_timestamp_message'] = digest_payload(
+        payload['hashed_timestamp_message'] = base64.b64encode(digest_payload(
             base64.b64encode(digest_payload(message, hash_algorithm)).decode() +
             str(time.time()),
-            hash_algorithm)
-        payload['signature'] = sign(payload['hashed_timestamp_message'])
+            hash_algorithm)).decode()
+        payload['signature'] = base64.b64encode(
+            sign(payload['hashed_timestamp_message'])).decode()
 
-        # Cipher message
-        message = self.secure.cipher_message_to_user(
-            payload, 'receipt', payload['id'])
-
-        self.send_payload(self.secure.encapsulate_secure_message(message))
+        self.send_payload(self.secure.encapsulate_secure_message(payload))
 
     def message_status(self):
         message = {

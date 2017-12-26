@@ -117,7 +117,7 @@ class ClientSecure:
             self.cipher_suite = get_cipher_suite(self.cipher_spec)
 
         assert message['cipher_spec'] == self.cipher_spec
-
+        """
         # Verify signature and certificate validity
         peer_certificate = deserialize_certificate(message['certificate'])
         assert self.certificates.validate_cert(peer_certificate)
@@ -131,7 +131,7 @@ class ClientSecure:
             )
         except InvalidSignature:
             return "Invalid signature"
-
+        """
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
 
@@ -225,7 +225,7 @@ class ClientSecure:
             peer_rsa_pubkey,
             aes_iv_key,
             self.cipher_suite['sha']['size'],
-            self.cipher_suite['rsa']['padding']
+            self.cipher_suite['rsa']['cipher']['padding']
         )
 
         # Generate nounce to verify message readings
@@ -241,7 +241,6 @@ class ClientSecure:
             'signature': None,
             'cipher_spec': self.cipher_spec
         }
-
         # Sign payload
         #payload['signature'] = cc.sign(payload['payload'], self.cc_pin)
 
@@ -271,7 +270,7 @@ class ClientSecure:
             self.private_key,
             base64.b64decode(payload['payload']['key_iv'].encode()),
             self.cipher_suite['sha']['size'],
-            self.cipher_suite['rsa']['padding']
+            self.cipher_suite['rsa']['cipher']['padding']
         )
         aes_iv = aes_iv_key[:16]
         aes_key = aes_iv_key[16:]
