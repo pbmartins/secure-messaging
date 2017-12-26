@@ -22,6 +22,25 @@ except AttributeError:
     sys.exit(0)
 
 
+def get_correct_pin():
+    pin = getpass.getpass("CC Authentication PIN: ")
+
+    # Get correct pin
+    text = "\nIncorrect PIN. Please type the correct PIN: "
+    while not test_pin(pin):
+        pin = getpass.getpass(text)
+
+    return pin
+
+
+def test_pin(cc_pin):
+    try:
+        with token.open(user_pin=cc_pin) as session:
+            return True
+    except:
+        return False
+
+
 def get_public_key():
     try:
         # Open a session on our token
@@ -69,8 +88,7 @@ def get_pub_key_certificate():
 
 
 def sign(payload, cc_pin=None):
-    pin = getpass.getpass("CC Authentication PIN: ") \
-        if cc_pin is None else cc_pin
+    pin = get_correct_pin() if cc_pin is None else cc_pin
 
     try:
         # Open a session on our token

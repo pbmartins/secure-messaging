@@ -53,7 +53,8 @@ class Client:
         while op != 'y' and op != 'N':
             op = input("Do you wish to cache your CC Signature PIN? [y/N]")
 
-        pin = getpass.getpass("CC Authentication PIN: ") if op == 'y' else None
+        pin = get_correct_pin() if op == 'y' else None
+
         return pin
 
     def __init__(self):
@@ -284,21 +285,13 @@ class Client:
             self.secure.uncapsulate_resource_message(
                 self.secure.uncapsulate_secure_message(data))
 
-        # TODO : check the best way to get source p_key and certificate
-        # Get sender public key and certificate
-        resource_payload = self.secure.encapsulate_resource_message(
-            [payload['src']])
-        if resource_payload is not None:
-            data = self.send_payload(
-                self.secure.encapsulate_secure_message(resource_payload))
-            self.secure.uncapsulate_resource_message(
-                self.secure.uncapsulate_secure_message(data))
-
         # Cipher sender and receiver message
         payload['msg'] = self.secure.cipher_message_to_user(
             'message', payload['msg'], payload['dst'])
         payload['copy'] = self.secure.cipher_message_to_user(
-            'message', payload['copy'], payload['src'])
+            'message', payload['copy'], payload['src'], self.secure.public_key)
+
+        print('\nSending Message ...\n')
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
@@ -306,6 +299,7 @@ class Client:
         if 'error' in data:
             print("ERROR: " + data['error'])
         else:
+            print('\nMessage sent successfully!\n')
             print("Message ID: " + data['result'][0])
             print("Receipt ID: " + data['result'][1])
 
@@ -328,6 +322,8 @@ class Client:
             except ValueError:
                 print("ERROR: Invalid message ID")
 
+        print('\nGetting Message ...\n')
+
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
@@ -340,6 +336,8 @@ class Client:
                 data['result'][1], None).rstrip()
             print("Message: " + message)
 
+            print('\nSending receipt ...\n')
+
             # Send receipt
             self.receipt_message(payload['msg'], message, payload['id'])
 
@@ -349,11 +347,11 @@ class Client:
         payload = {
             'type': 'receipt',
             'id': receipt_user_id,
-            'msg': message_id,
+            'msg': message_id
         }
 
         # Sign cleartext message
-        payload['receipt']: base64.b64encode(
+        payload['receipt'] = base64.b64encode(
             sign(message, self.secure.cc_pin)).decode()
 
         # Generate signed hash of timestamp|hashed message
@@ -365,6 +363,8 @@ class Client:
             sign(payload['hashed_timestamp_message'], self.secure.cc_pin)).decode()
 
         self.send_payload(self.secure.encapsulate_secure_message(payload), response=False)
+
+        print('\nReceipt sent successfully!\n')
 
     def message_status(self):
         message = {
@@ -385,6 +385,8 @@ class Client:
                 break
             except ValueError:
                 print("ERROR: Invalid message ID")
+
+        print('\nGetting status ...\n')
 
         data = self.send_payload(self.secure.encapsulate_secure_message(message))
         data = self.secure.uncapsulate_secure_message(data)
