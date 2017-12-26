@@ -90,7 +90,7 @@ class ServerRegistry:
     def getUser(self, uid):
         if isinstance(uid, int):
             for user_id in list(self.users.keys()):
-                if user_id == uid or self.users[user_id].description['uuid']:
+                if user_id == uid or self.users[user_id].description['uuid'] == uid:
                     return self.users[user_id]
             return None
 

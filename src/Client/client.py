@@ -335,7 +335,9 @@ class Client:
         # Generate signed hash of timestamp|hashed message
         hash_algorithm = self.secure.cipher_suite['sha']['size']
         payload['hashed_timestamp_message'] = digest_payload(
-            digest_payload(message, hash_algorithm) + time.time(), hash_algorithm)
+            base64.b64encode(digest_payload(message, hash_algorithm)).decode() +
+            str(time.time()),
+            hash_algorithm)
         payload['signature'] = sign(payload['hashed_timestamp_message'])
 
         # Cipher message

@@ -74,7 +74,6 @@ class ServerActions:
                 json.dumps(data))
             client.sendResult({"error": "wrong message format"}, nounce)
             return
-
         if self.registry.userExists(uuid):
             logger.log(logging.ERROR, "User already exists: " + json.dumps(data))
             client.sendResult({"error": "uuid already exists"}, nounce)
