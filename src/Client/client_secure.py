@@ -11,48 +11,8 @@ import logging
 
 
 class ClientSecure:
-    @staticmethod
-    def get_cipher_suite(cipher_spec):
-        specs = cipher_spec.split('-')
-        aes = specs[1].split('_')
-        rsa = specs[2].split('_')
-        hash = specs[3]
 
-        cipher_suite = {
-            'aes': {
-                'key_size': int(aes[0][3:]) // 8,
-                'mode': aes[1]
-            },
-            'rsa': {
-                'key_size': int(rsa[0][3:]),
-                'padding': rsa[1]
-            },
-            'sha': {
-                'size': int(hash[3:])
-            }
-        }
-        return cipher_suite
-
-    @staticmethod
-    def serialize_key(pub_value):
-        return base64.b64encode(pub_value.public_bytes(
-            serialization.Encoding.PEM,
-            serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
-
-    @staticmethod
-    def deserialize_key(pub_value):
-        return serialization.load_pem_public_key(base64.b64decode(
-            pub_value.encode()), default_backend())
-
-    @staticmethod
-    def serialize_certificate(cert):
-        return base64.b64encode(crypto.dump_certificate(crypto.FILETYPE_PEM, cert)).decode()
-
-    @staticmethod
-    def deserialize_certificate(cert):
-        return crypto.load_certificate(crypto.FILETYPE_PEM, base64.b64decode(cert.encode()))
-
-    def __init__(self, uuid, private_key, public_key, cipher_spec=None, cipher_suite=None):
+    def __init__(self, uuid, private_key, public_key, cipher_spec=None, cipher_suite=None, pin=None):
         self.uuid = uuid
         self.cipher_spec = cipher_spec
         self.cipher_suite = cipher_suite
@@ -69,6 +29,8 @@ class ClientSecure:
         self.private_key = private_key
         self.public_key = public_key
 
+        self.cc_pin = pin
+
         self.user_certificates = {}
 
     def encapsulate_insecure_message(self):
@@ -82,7 +44,7 @@ class ClientSecure:
             'type': 'insecure',
             'uuid': self.uuid,
             'secdata': {
-                'dhpubvalue': ClientSecure.serialize_key(self.pub_value),
+                'dhpubvalue': serialize_key(self.pub_value),
                 'salt': base64.b64encode(salt).decode(),
                 'index': self.number_of_hash_derivations
             },
@@ -126,22 +88,22 @@ class ClientSecure:
             'message': base64.b64encode(ciphered_payload).decode(),
             'nounce': nounce,
             'secdata': {
-                'dhpubvalue': ClientSecure.serialize_key(self.pub_value),
+                'dhpubvalue': serialize_key(self.pub_value),
                 'salt': base64.b64encode(salt).decode(),
                 'iv': base64.b64encode(aes_iv).decode(),
                 'index': self.number_of_hash_derivations
             }
         }).encode()
 
-        signature = None
-        #signature = cc.sign(message_payload)
+        #signature = None
+        signature = cc.sign(message_payload, self.cc_pin)
 
         # Build message
         message = {
             'type': 'secure',
             'payload': base64.b64encode(message_payload).decode(),
-            'signature': signature,
-            'certificate': ClientSecure.serialize_certificate(self.cc_cert),
+            'signature': base64.b64encode(signature).decode(),
+            'certificate': serialize_certificate(self.cc_cert),
             'cipher_spec': self.cipher_spec
         }
 
@@ -152,24 +114,23 @@ class ClientSecure:
     def uncapsulate_secure_message(self, message):
         if self.cipher_spec is None:
             self.cipher_spec = message['cipher_spec']
-            self.cipher_suite = ClientSecure.get_cipher_suite(self.cipher_spec)
+            self.cipher_suite = get_cipher_suite(self.cipher_spec)
 
         assert message['cipher_spec'] == self.cipher_spec
-        """
+
         # Verify signature and certificate validity
-        peer_certificate = \
-            ClientSecure.deserialize_certificate(message['certificate'])
+        peer_certificate = deserialize_certificate(message['certificate'])
         assert self.certificates.validate_cert(peer_certificate)
         try:
-            peer_certificate.get_pubkey().to_cryptography_key().verify(
-                message['signature'],
+            rsa_verify(
+                peer_certificate.get_pubkey().to_cryptography_key(),
+                base64.b64decode(message['signature'].encode()),
                 base64.b64decode(message['payload'].encode()),
-                self.cipher_suite['rsa']['padding'],
-                self.cipher_suite['sha']['size']
+                self.cipher_suite['rsa']['sign']['server']['sha'],
+                self.cipher_suite['rsa']['sign']['server']['padding']
             )
         except InvalidSignature:
             return "Invalid signature"
-        """
 
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
@@ -184,7 +145,7 @@ class ClientSecure:
 
         # Derive AES key and decipher payload
         salt_idx = self.number_of_hash_derivations - 1
-        self.peer_pub_value = ClientSecure.deserialize_key(
+        self.peer_pub_value = deserialize_key(
             message['payload']['secdata']['dhpubvalue'])
         self.peer_salt = base64.b64decode(
             message['payload']['secdata']['salt'].encode())
@@ -238,10 +199,10 @@ class ClientSecure:
         # Save user public values, certificate and cipher_spec
         for user in resource_payload['result']:
             self.user_certificates[user['id']] = {
-                'pub_key': ClientSecure.deserialize_key(user['rsapubkey']),
-                'cc_pub_key': ClientSecure.deserialize_key(user['ccpubkey']),
-                'certificate:': ClientSecure.deserialize_certificate(user['cccertificate']),
-                'cipher_spec': ClientSecure.get_cipher_suite(user['cipher_spec'])
+                'pub_key': deserialize_key(user['rsapubkey']),
+                'cc_pub_key': deserialize_key(user['ccpubkey']),
+                'certificate:': deserialize_certificate(user['cccertificate']),
+                'cipher_spec': get_cipher_suite(user['cipher_spec'])
             }
 
     def cipher_message_to_user(self, payload_type, message, user_id):
@@ -282,27 +243,26 @@ class ClientSecure:
         }
 
         # Sign payload
-        #signature = cc.sign(payload['payload'])
-        #payload['signature'] = signature
+        #payload['signature'] = cc.sign(payload['payload'], self.cc_pin)
 
         return base64.b64encode(json.dumps(payload).encode()).decode()
 
     def decipher_message_from_user(self, payload, peer_certificate):
         """
         # Verify signature and certificate validity
-        peer_certificate = ClientSecure.deserialize_certificate(peer_certificate)
+        peer_certificate = deserialize_certificate(peer_certificate)
         assert self.certificates.validate_cert(peer_certificate)
         try:
-            peer_certificate.get_pubkey().to_cryptography_key().verify(
-                payload['signature'],
-                payload['payload'],
-                self.cipher_suite['rsa']['padding'],
-                self.cipher_suite['sha']['size']
+            rsa_verify(
+                peer_certificate.get_pubkey().to_cryptography_key(),
+                base64.b64decode(payload['signature'].encode()),
+                base64.b64decode(payload['payload'].encode()),
+                self.cipher_suite['sha']['sign']['cc']['sha'],
+                self.cipher_suite['rsa']['sign']['cc']['padding']
             )
         except InvalidSignature:
             return "Invalid signature"
         """
-
         # Decode payload
         payload = json.loads(base64.b64decode(payload))
 

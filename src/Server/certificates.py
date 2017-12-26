@@ -8,6 +8,7 @@ import wget
 import os
 import base64
 import logging
+import pprint
 
 
 # Only accepts OpenSSL X509 Objects
@@ -18,7 +19,7 @@ class X509Certificates:
                                        base64.b64decode(cert.encode()))
     @classmethod
     def get_extension(cls, cert, short_name):
-        for i in (0, cert.get_extension_count()):
+        for i in range(0, cert.get_extension_count()):
             extension = cert.get_extension(i)
             if extension.get_short_name() == short_name:
                 return extension
@@ -56,8 +57,6 @@ class X509Certificates:
         self.import_certs(XCA_DIR)
         self.import_certs(CERTS_DIR)
         self.import_keys()
-
-        print("times")
 
     def import_user_certs(self, users):
         for uid in users:
@@ -110,7 +109,7 @@ class X509Certificates:
             self.store.add_cert(certs[subject])
 
     def import_keys(self):
-        f = open('./xca-server/SecurityServer.pem', 'rb')
+        f = open(XCA_DIR + 'SecurityServer.pem', 'rb')
 
         self.priv_key = serialization.load_pem_private_key(
             f.read(), None, default_backend())
@@ -125,15 +124,14 @@ class X509Certificates:
         # Check if it has been revoked
         issuer = cert.get_issuer().commonName
         if issuer not in self.crls:
-            dir_path = os.path.dirname(os.path.realpath(__file__)) + '/crl/'
-            crl_download = wget.download(X509Certificates.get_crl_url(cert),
-                                         out=dir_path)
-            f = open(dir_path + crl_download, 'rb')
+            crl_download = wget.download(
+                X509Certificates.get_crl_url(cert), out=CRLS_DIR)
+            f = open(CRLS_DIR + crl_download, 'rb')
             crl = crypto.CRL.from_cryptography(
                 x509.load_der_x509_crl(f.read(), default_backend())
             )
 
-            self.crls[issuer] = dir_path + crl_download
+            self.crls[issuer] = CRLS_DIR + crl_download
         else:
             f = open(self.crls[issuer], 'rb')
             crl = crypto.CRL.from_cryptography(
@@ -146,19 +144,28 @@ class X509Certificates:
     # TODO: Check all the chain
     def validate_cert(self, cert):
         c = cert
+
+        pprint.pprint(self.certs.keys())
         # Check if all certificates in the chain are valid
         while True:
-            assert c.get_issuer().commonName in self.certs
+            pprint.pprint(cert.get_subject().commonName)
+            pprint.pprint(cert.get_issuer().commonName)
+            if c.get_issuer().commonName not in self.certs.keys():
+                print("Not in certs")
+                return False
 
             if c.get_issuer().commonName == c.get_subject().commonName:
+                print("Self signed")
                 break
 
             if not self.check_expiration_or_revoked(c):
+                print("Revoked")
                 return False
             c = self.certs[c.get_issuer().commonName]
 
         # Check if the chain is valid
         try:
+            print("Cheking chain")
             # Create a certificate context using the store and
             # the certificate to be verified
             store_ctx = crypto.X509StoreContext(self.store, cert)

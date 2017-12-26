@@ -27,8 +27,7 @@ MAX_BUFSIZE = 64 * 1024
 
 
 class Server:
-
-    server_actions = ServerActions()
+    server_actions = None
 
     def __init__(self, host, port):
         self.ss = socket(AF_INET, SOCK_STREAM)  # the server socket (IP \ TCP)
@@ -39,6 +38,7 @@ class Server:
             str(self.ss.getsockname()))
 
         # clients to manage (indexed by socket and by name):
+        Server.server_actions = ServerActions()
         self.clients = {}  # clients (key is socket)
 
     def stop(self):
@@ -187,7 +187,6 @@ def main():
 
     if len(sys.argv) > 1:
         PORT = int(sys.argv[1])
-
 
     while True:
         try:
