@@ -1,4 +1,5 @@
 from src.Client.log import logger
+from src.Client.lib import *
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography import x509
@@ -11,13 +12,14 @@ import logging
 class X509Certificates:
     @classmethod
     def get_extension(cls, cert, short_name):
-        for i in (0, cert.get_extension_count()):
+        for i in range(0, cert.get_extension_count()):
             extension = cert.get_extension(i)
             if extension.get_short_name() == short_name:
                 return extension
 
     @classmethod
     def get_crl_url(cls, cert):
+        print(cert.get_subject().commonName)
         extension = cls.get_extension(cert, b'crlDistributionPoints')
         try:
             value = extension.get_data()
@@ -44,14 +46,14 @@ class X509Certificates:
         self.import_certs()
 
     def import_certs(self):
-        files = [f for f in os.listdir('./certs')]
+        files = [f for f in os.listdir(CERTS_DIR)]
 
         for f_name in files:
             cert = None
 
             # Trying to read it as PEM
             try:
-                f = open('./certs/' + f_name, 'rb')
+                f = open(CERTS_DIR + f_name, 'rb')
                 cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
             except crypto.Error:
                 logger.log(logging.DEBUG, "Not a PEM Certificate: %r" % f_name)
@@ -61,7 +63,7 @@ class X509Certificates:
             if cert is None:
                 # Trying to read it as DER
                 try:
-                    f = open('./certs/' + f_name, 'rb')
+                    f = open(CERTS_DIR + f_name, 'rb')
                     cert = crypto.load_certificate(
                         crypto.FILETYPE_ASN1, f.read())
                     logger.log(logging.DEBUG,
@@ -86,29 +88,34 @@ class X509Certificates:
             return False
 
         # Check if it has been revoked
+        crl = None
         issuer = cert.get_issuer().commonName
         if issuer not in self.crls:
-            dir_path = os.path.dirname(os.path.realpath(__file__)) + '/crl/'
-            crl_download = wget.download(X509Certificates.get_crl_url(cert),
-                                         out=dir_path)
-            f = open(dir_path + crl_download, 'rb')
-            crl = crypto.CRL.from_cryptography(
-                x509.load_der_x509_crl(f.read(), default_backend())
-            )
+            crl_url = X509Certificates.get_crl_url(cert)
+            if crl_url is not None:
+                crl_download = wget.download(crl_url, out=CRLS_DIR)
+                f = open(CRLS_DIR + crl_download, 'rb')
+                crl = crypto.CRL.from_cryptography(
+                    x509.load_der_x509_crl(f.read(), default_backend())
+                )
 
-            self.crls[issuer] = dir_path + crl_download
+                self.crls[issuer] = CRLS_DIR + crl_download
         else:
             f = open(self.crls[issuer], 'rb')
             crl = crypto.CRL.from_cryptography(
                 x509.load_der_x509_crl(f.read(), default_backend())
             )
 
-        revoked_serials = [int(c.get_serial(), 16) for c in crl.get_revoked()]
-        return cert.get_serial_number() not in revoked_serials
+        if crl is not None:
+            revoked_serials = [int(c.get_serial(), 16) for c in crl.get_revoked()]
+            return cert.get_serial_number() not in revoked_serials
+
+        return True
 
 
     # TODO: Check all the chain
     def validate_cert(self, cert):
+        print(cert.get_subject().commonName)
         c = cert
         # Check if all certificates in the chain are valid
         while True:

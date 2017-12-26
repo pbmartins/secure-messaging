@@ -30,9 +30,12 @@ def get_public_key():
 
             pub_key = None
             for key in pub_keys:
-                if "AUTH" in str(key).upper():
+                if "AUTH" in key[Attribute.LABEL].upper():
                     pub_key = key
                     break
+
+            print(pub_key)
+            pub_keys = None
 
             return pub_key
     except AttributeError:
@@ -50,10 +53,8 @@ def get_pub_key_certificate():
 
             for cc_cert in cc_certs:
                 # Convert from DER-encoded value
-                cert = crypto.X509.from_cryptography(
-                    x509.load_der_x509_certificate(cc_cert[Attribute.VALUE],
-                                                   default_backend())
-                )
+                cert = crypto.load_certificate(
+                    crypto.FILETYPE_ASN1, cc_cert[Attribute.VALUE])
 
                 issuer = cert.get_issuer().commonName
                 if 'EC de Autenticação do Cartão de Cidadão 00' in issuer:
@@ -67,8 +68,9 @@ def get_pub_key_certificate():
         sys.exit(0)
 
 
-def sign(payload):
-    pin = getpass.getpass("Signature PIN: ")
+def sign(payload, cc_pin=None):
+    pin = getpass.getpass("CC Authentication PIN: ") \
+        if cc_pin is None else cc_pin
 
     try:
         # Open a session on our token
@@ -83,8 +85,12 @@ def sign(payload):
                     break
 
             # Sign data
+            # TODO: Verify mechanism
             signature = priv_key.sign(
-                payload, mechanism=pkcs11.Mechanism.SHA1_RSA_PKCS)
+                payload, mechanism=pkcs11.Mechanism.SHA256_RSA_PKCS
+            )
+
+            priv_keys = None
             return signature
     except AttributeError:
         print('ERROR: CC device not connected')
@@ -94,4 +100,4 @@ def sign(payload):
 def verify(pub_key, payload, signature):
     # Verify signature
     return pub_key.verify(
-        payload, signature, mechanism=pkcs11.Mechanism.SHA1_RSA_PKCS)
+        payload, signature, mechanism=pkcs11.Mechanism.SHA256_RSA_PKCS)

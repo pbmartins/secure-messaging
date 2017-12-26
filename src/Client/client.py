@@ -19,31 +19,42 @@ BUFSIZE = 512 * 1024
 TERMINATOR = "\n\n"
 MAX_BUFSIZE = 64 * 1024
 
+
 class Client:
     @staticmethod
     def choose_cipher_spec():
         suites = [
-            "EECDH-AES192_CFB-RSA1024_PCKS1v15-SHA256",
-            "EECDH-AES192_CFB-RSA2048_OAEP-SHA256",
-            "EECDH-AES256_CFB-RSA2048_OAEP-SHA384",
-            "EECDH-AES192_CTR-RSA1024_PCKS1v15-SHA256",
-            "EECDH-AES192_CTR-RSA2048_OAEP-SHA256",
-            "EECDH-AES256_CTR-RSA2048_OAEP-SHA384"
+            "EECDH-AES192_CFB-RSA1024_PCKS1v15-RSA2048_PSS_SHA256_PKCS_SHA256-SHA256",
+            "EECDH-AES192_CFB-RSA2048_OAEP-RSA2048_PSS_SHA256_PKCS_SHA256-SHA256",
+            "EECDH-AES256_CFB-RSA2048_OAEP-RSA2048_PSS_SHA384_PKCS_SHA256-SHA384",
+            "EECDH-AES192_CTR-RSA1024_PCKS1v15-RSA2048_PSS_SHA256_PKCS_SHA256-SHA256",
+            "EECDH-AES192_CTR-RSA2048_OAEP-RSA2048_PSS_SHA256_PKCS_SHA256-SHA256",
+            "EECDH-AES256_CTR-RSA2048_OAEP-RSA2048_PSS_SHA384_PKCS_SHA256-SHA384"
         ]
 
-        print("--- Choose cipher suite ---\n"
-              "0 - EECDH-AES192_CFB-RSA1024_PCKS1v15-SHA256\n"
-              "1 - EECDH-AES192_CFB-RSA2048_OAEP-SHA256\n"
-              "2 - EECDH-AES256_CFB-RSA2048_OAEP-SHA384\n"
-              "3 - EECDH-AES192_CTR-RSA1024_PCKS1v15-SHA256\n"
-              "4 - EECDH-AES192_CTR-RSA2048_OAEP-SHA256\n"
-              "5 - EECDH-AES256_CTR-RSA2048_OAEP-SHA384")
+        print("\n--- Choose cipher suite ---"
+              "\n0 - " + suites[0] +
+              "\n1 - " + suites[1] +
+              "\n2 - " + suites[2] +
+              "\n3 - " + suites[3] +
+              "\n4 - " + suites[4] +
+              "\n5 - " + suites[5]
+              )
         op = int(input("Cipher suite -> "))
 
         while op < 0 or op > 5:
             op = int(input("Cipher suite -> "))
 
         return suites[op]
+
+    @staticmethod
+    def cache_cc_pin():
+        op = input("Do you wish to cache your CC Signature PIN? [y/N]")
+        while op != 'y' and op != 'N':
+            op = input("Do you wish to cache your CC Signature PIN? [y/N]")
+
+        pin = getpass.getpass("CC Authentication PIN: ") if op == 'y' else None
+        return pin
 
     def __init__(self):
         self.ss = socket(AF_INET, SOCK_STREAM)
@@ -81,12 +92,12 @@ class Client:
         if not os.path.exists(key_dir):
             # Chose cipher spec
             cipher_spec = Client.choose_cipher_spec()
-            cipher_suite = ClientSecure.get_cipher_suite(cipher_spec)
+            cipher_suite = get_cipher_suite(cipher_spec)
 
             # Create directory to save keys
             os.makedirs(key_dir)
             priv_key, pub_key = \
-                generate_rsa_keypair(cipher_suite['rsa']['key_size'])
+                generate_rsa_keypair(cipher_suite['rsa']['cipher']['key_size'])
 
             # Save private key to ciphered file
             save_to_ciphered_file(
@@ -98,9 +109,12 @@ class Client:
             # Save public key to regular file
             save_to_file(pub_key, self.uuid)
 
+            # Cache CC pin
+            pin = Client.cache_cc_pin()
+
             # Initialize session with the server
             self.secure = ClientSecure(self.uuid, priv_key, pub_key,
-                                       cipher_spec, cipher_suite)
+                                       cipher_spec, cipher_suite, pin)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
@@ -127,8 +141,11 @@ class Client:
             # Read public key from regular file
             pub_key = read_from_file(self.uuid)
 
+            # Cache CC pin
+            pin = Client.cache_cc_pin()
+
             # Initialize session with the server
-            self.secure = ClientSecure(self.uuid, priv_key, pub_key)
+            self.secure = ClientSecure(self.uuid, priv_key, pub_key, pin=pin)
             data = self.send_payload(self.secure.encapsulate_insecure_message())
             message = self.secure.uncapsulate_secure_message(data)
 
@@ -140,13 +157,10 @@ class Client:
             'type': 'create',
             'uuid': self.uuid,
             'secdata': {
-                'rsapubkey':
-                    ClientSecure.serialize_key(self.secure.public_key),
-                'ccpubkey':
-                    ClientSecure.serialize_key(
+                'rsapubkey': serialize_key(self.secure.public_key),
+                'ccpubkey': serialize_key(
                         self.cc_certificate.get_pubkey().to_cryptography_key()),
-                'cccertificate': ClientSecure.serialize_certificate(
-                        self.cc_certificate),
+                'cccertificate': serialize_certificate(self.cc_certificate),
                 'cipher_spec': cipher_spec
             }
         }

@@ -4,6 +4,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding, ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from OpenSSL import crypto
+import pkcs11
 import os
 import base64
 
@@ -32,10 +34,18 @@ def get_aes_mode(mode, iv):
     return cipher_modes[mode]
 
 
-def get_padding_algorithm(padding_mode):
+def get_padding_algorithm(padding_mode, h):
     paddings = {
-        'OAEP': padding.OAEP,
-        'PKCS1v15': padding.OAEP
+        'OAEP': padding.OAEP(
+            mgf=padding.MGF1(algorithm=h),
+            algorithm=h,
+            label=None
+        ),
+        'PKCS1v15': padding.PKCS1v15(),
+        'PSS': padding.PSS(
+            mgf=padding.MGF1(h),
+            salt_length=padding.PSS.MAX_LENGTH
+        )
     }
 
     assert padding_mode in paddings.keys()
@@ -178,55 +188,90 @@ def read_from_file(uuid):
 """
 
 
-def rsa_sign(private_key, payload, hash_algorithm):
+def rsa_sign(private_key, payload, hash_algorithm, padding_algorithm):
     h = get_hash_algorithm(hash_algorithm)
-    signature = private_key.sign(
-        payload,
-        padding.PSS(
-            mgf=padding.MGF1(h),
-            salt_length=padding.PSS.MAX_LENGTH
-        ),
-        h
-    )
+    p = get_padding_algorithm(padding_algorithm, h)
+    signature = private_key.sign(payload, p, h)
     return signature
 
 
-def rsa_verify(public_key, signature, payload, hash_algorithm):
+def rsa_verify(public_key, signature, payload, hash_algorithm, padding_algorithm):
     h = get_hash_algorithm(hash_algorithm)
-    return public_key.verify(
-        signature,
-        payload,
-        padding.PSS(
-            mgf=padding.MGF1(h),
-            salt_length=padding.PSS.MAX_LENGTH
-        ),
-        h
-    )
+    p = get_padding_algorithm(padding_algorithm, h)
+    return public_key.verify(signature, payload, p, h)
 
 
 def rsa_cipher(public_key, payload, hash_algorithm, padding_algorithm):
     h = get_hash_algorithm(hash_algorithm)
-    p = get_padding_algorithm(padding_algorithm)
-    ciphertext = public_key.encrypt(
-        payload,
-        p(
-            mgf=padding.MGF1(algorithm=h),
-            algorithm=h,
-            label=None
-        )
-    )
+    p = get_padding_algorithm(padding_algorithm, h)
+    ciphertext = public_key.encrypt(payload, p)
     return ciphertext
 
 
 def rsa_decipher(private_key, ciphertext, hash_algorithm, padding_algorithm):
     h = get_hash_algorithm(hash_algorithm)
-    p = get_padding_algorithm(padding_algorithm)
-    payload = private_key.decrypt(
-        ciphertext,
-        p(
-            mgf=padding.MGF1(algorithm=h),
-            algorithm=h,
-            label=None
-        )
-    )
+    p = get_padding_algorithm(padding_algorithm, h)
+    payload = private_key.decrypt(ciphertext, p)
     return payload
+
+
+"""
+Other utilities
+"""
+
+
+def get_cipher_suite(cipher_spec):
+    specs = cipher_spec.split('-')
+    aes = specs[1].split('_')
+    rsa = specs[2].split('_')
+    rsasign = specs[3].split('_')
+    hash = specs[4]
+
+    cipher_suite = {
+        'aes': {
+            'key_size': int(aes[0][3:]) // 8,
+            'mode': aes[1]
+        },
+        'rsa': {
+            'cipher': {
+                'key_size': int(rsa[0][3:]),
+                'padding': rsa[1]
+            },
+            'sign': {
+                'key_size': int(rsasign[0][3:]),
+                'server': {
+                    'padding': rsasign[1],
+                    'sha': int(rsasign[2][3:])
+                },
+                'cc': {
+                    'padding': rsasign[3],
+                    'sha': int(rsasign[4][3:])
+                },
+            }
+        },
+        'sha': {
+            'size': int(hash[3:])
+        }
+    }
+    return cipher_suite
+
+
+def serialize_key(pub_value):
+    return base64.b64encode(pub_value.public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+
+
+def deserialize_key(pub_value):
+    return serialization.load_pem_public_key(base64.b64decode(
+        pub_value.encode()), default_backend())
+
+
+def serialize_certificate(cert):
+    return base64.b64encode(
+        crypto.dump_certificate(crypto.FILETYPE_PEM, cert)).decode()
+
+
+def deserialize_certificate(cert):
+    return crypto.load_certificate(crypto.FILETYPE_PEM,
+                                   base64.b64decode(cert.encode()))

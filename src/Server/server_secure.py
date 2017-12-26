@@ -10,46 +10,6 @@ import logging
 
 
 class ServerSecure:
-    @staticmethod
-    def get_cipher_suite(cipher_spec):
-        specs = cipher_spec.split('-')
-        aes = specs[1].split('_')
-        rsa = specs[2].split('_')
-        hash = specs[3]
-
-        cipher_suite = {
-            'aes': {
-                'key_size': int(aes[0][3:]) // 8,
-                'mode': aes[1]
-            },
-            'rsa': {
-                'key_size': int(rsa[0][3:]),
-                'padding': rsa[1]
-            },
-            'sha': {
-                'size': int(hash[3:])
-            }
-        }
-        return cipher_suite
-
-    @staticmethod
-    def serialize_key(pub_value):
-        return base64.b64encode(pub_value.public_bytes(
-            serialization.Encoding.PEM,
-            serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
-
-    @staticmethod
-    def deserialize_key(pub_value):
-        return serialization.load_pem_public_key(base64.b64decode(
-            pub_value.encode()), default_backend())
-
-    @staticmethod
-    def serialize_certificate(cert):
-        return base64.b64encode(crypto.dump_certificate(crypto.FILETYPE_PEM, cert)).decode()
-
-    @staticmethod
-    def deserialize_certificate(cert):
-        return crypto.load_certificate(crypto.FILETYPE_PEM, base64.b64decode(cert.encode()))
 
     def __init__(self, registry, certs):
         self.uuid = None
@@ -75,9 +35,8 @@ class ServerSecure:
         self.uuid = payload['uuid']
         self.cipher_spec = payload['cipher_spec'] if payload['cipher_spec'] is not None \
             else self.registry.getUser(self.uuid).description['secdata']['cipher_spec']
-        self.cipher_suite = ServerSecure.get_cipher_suite(self.cipher_spec)
-        self.peer_pub_value = ServerSecure.deserialize_key(
-            payload['secdata']['dhpubvalue'])
+        self.cipher_suite = get_cipher_suite(self.cipher_spec)
+        self.peer_pub_value = deserialize_key(payload['secdata']['dhpubvalue'])
         self.peer_salt = base64.b64decode(payload['secdata']['salt'].encode())
         self.number_of_hash_derivations = payload['secdata']['index']
 
@@ -111,7 +70,7 @@ class ServerSecure:
             'message': base64.b64encode(ciphered_payload).decode(),
             'nounce': nounce,
             'secdata': {
-                'dhpubvalue': ServerSecure.serialize_key(self.pub_value),
+                'dhpubvalue': serialize_key(self.pub_value),
                 'salt': base64.b64encode(self.salt).decode(),
                 'iv': base64.b64encode(aes_iv).decode(),
                 'index': self.number_of_hash_derivations
@@ -119,19 +78,19 @@ class ServerSecure:
         }).encode()
 
         signature = None
-        """
         signature = rsa_sign(
             self.private_key,
             message_payload,
-            self.cipher_suite['sha']['size']
+            self.cipher_suite['rsa']['sign']['server']['sha'],
+            self.cipher_suite['rsa']['sign']['server']['padding']
         )
-        """
+
         # Build message
         message = {
             'type': 'secure',
             'payload': base64.b64encode(message_payload).decode(),
-            'signature': signature,
-            'certificate': ServerSecure.serialize_certificate(self.server_cert),
+            'signature': base64.b64encode(signature).decode(),
+            'certificate': serialize_certificate(self.server_cert),
             'cipher_spec': self.cipher_spec
         }
 
@@ -141,20 +100,21 @@ class ServerSecure:
 
     def uncapsulate_secure_message(self, message):
         assert message['cipher_spec'] == self.cipher_spec
-        """
+
         # Verify signature and certificate validity
-        peer_certificate = ServerSecure.deserialize(message['certificate'])
-        assert server.serv.certificates.validate_cert(peer_certificate])
+        peer_certificate = deserialize_certificate(message['certificate'])
+        if not self.certs.validate_cert(peer_certificate):
+            print("Invalid certificate")
         try:
-            peer_certificate.get_pubkey().to_cryptography_key().verify(
-                message['signature'],
+            rsa_verify(
+                peer_certificate.get_pubkey().to_cryptography_key(),
+                base64.b64decode(message['signature'].encode()),
                 base64.b64decode(message['payload'].encode()),
-                self.cipher_suite['rsa']['padding'],
-                self.cipher_suite['sha']['size']
+                self.cipher_suite['rsa']['sign']['cc']['sha'],
+                self.cipher_suite['rsa']['sign']['cc']['padding']
             )
         except InvalidSignature:
             return "Invalid signature"
-        """
 
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
@@ -164,7 +124,7 @@ class ServerSecure:
         # Derive AES key and decipher payload
         self.number_of_hash_derivations = message['payload']['secdata']['index']
 
-        self.peer_pub_value = ServerSecure.deserialize_key(
+        self.peer_pub_value = deserialize_key(
             message['payload']['secdata']['dhpubvalue'])
         self.peer_salt = base64.b64decode(
             message['payload']['secdata']['salt'].encode())
