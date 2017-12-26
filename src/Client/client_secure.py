@@ -241,6 +241,7 @@ class ClientSecure:
             'signature': None,
             'cipher_spec': self.cipher_spec
         }
+
         # Sign payload
         #payload['signature'] = cc.sign(payload['payload'], self.cc_pin)
 

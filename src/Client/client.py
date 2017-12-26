@@ -67,15 +67,15 @@ class Client:
 
         self.login()
 
-    def send_payload(self, message):
+    def send_payload(self, message, response=True):
         to_send = json.dumps(message)
         while len(to_send):
             self.ss.send(to_send[:BUFSIZE].encode('utf-8')
                          + '\r\n'.encode('utf-8'))
             to_send = to_send[BUFSIZE:]
-
-        data = json.loads(self.ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
-        return data
+        if response:
+            data = json.loads(self.ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
+            return data
 
     def login(self):
         print("-------- LOGIN --------")
@@ -284,11 +284,21 @@ class Client:
             self.secure.uncapsulate_resource_message(
                 self.secure.uncapsulate_secure_message(data))
 
+        # TODO : check the best way to get source p_key and certificate
+        # Get sender public key and certificate
+        resource_payload = self.secure.encapsulate_resource_message(
+            [payload['src']])
+        if resource_payload is not None:
+            data = self.send_payload(
+                self.secure.encapsulate_secure_message(resource_payload))
+            self.secure.uncapsulate_resource_message(
+                self.secure.uncapsulate_secure_message(data))
+
         # Cipher sender and receiver message
         payload['msg'] = self.secure.cipher_message_to_user(
             'message', payload['msg'], payload['dst'])
         payload['copy'] = self.secure.cipher_message_to_user(
-            'message', payload['msg'], payload['src'])
+            'message', payload['copy'], payload['src'])
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
@@ -331,7 +341,7 @@ class Client:
             print("Message: " + message)
 
             # Send receipt
-            self.receipt_message(data['result'][0], message, payload['id'])
+            self.receipt_message(payload['msg'], message, payload['id'])
 
     def receipt_message(self, message_id, message, receipt_user_id):
         hash_algorithm = self.secure.cipher_suite['sha']['size']
@@ -340,17 +350,11 @@ class Client:
             'type': 'receipt',
             'id': receipt_user_id,
             'msg': message_id,
-            'receipt': base64.b64encode(
-                digest_payload(message, hash_algorithm)).decode()
         }
 
-        # Get receiver public key and certificate
-        resource_payload = self.secure.encapsulate_resource_message([payload['id']])
-        if resource_payload is not None:
-            data = self.send_payload(
-                self.secure.encapsulate_secure_message(resource_payload))
-            self.secure.uncapsulate_resource_message(
-                self.secure.uncapsulate_secure_message(data))
+        # Sign cleartext message
+        payload['receipt']: base64.b64encode(
+            sign(message, self.secure.cc_pin)).decode()
 
         # Generate signed hash of timestamp|hashed message
         payload['hashed_timestamp_message'] = base64.b64encode(digest_payload(
@@ -358,9 +362,9 @@ class Client:
             str(time.time()),
             hash_algorithm)).decode()
         payload['signature'] = base64.b64encode(
-            sign(payload['hashed_timestamp_message'])).decode()
+            sign(payload['hashed_timestamp_message'], self.secure.cc_pin)).decode()
 
-        self.send_payload(self.secure.encapsulate_secure_message(payload))
+        self.send_payload(self.secure.encapsulate_secure_message(payload), response=False)
 
     def message_status(self):
         message = {
@@ -389,16 +393,17 @@ class Client:
             print("ERROR: " + data['error'])
         else:
             message = self.secure.decipher_message_from_user(
-                data['result']['msg'])
+                data['result']['msg'], False)
             print("Message: " + message)
             print("\nAll receipts: ")
             for receipt in data['result']['receipts']:
-                print("\tDate: " + receipt['date'])
+                print("\tDate: " + time.ctime(float(receipt['date']) / 1000))
                 print("\tReceipt sender ID: " + receipt['id'])
-                deciphered_receipt = self.secure.decipher_message_from_user(
-                    receipt['receipt'])
-                print("\tReceipt: " + deciphered_receipt)
-                print("")
+                # TODO: verity signature over receipt and show it (show what?
+                #  signature? cleartext message again?)
+                deciphered_receipt = base64.b64decode(receipt['receipt'].encode())
+                #print("\tReceipt: " + deciphered_receipt)
+                #print("")
 
 
 def main():

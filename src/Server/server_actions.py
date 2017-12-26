@@ -232,7 +232,7 @@ class ServerActions:
             return
 
         response = self.registry.getReceipts(fromId, msg)
-        client.sendResult({"result": response})
+        client.sendResult({"result": response}, nounce)
 
     def processResource(self, data, client, nounce):
         logger.log(logging.DEBUG, "%s" % json.dumps(data))

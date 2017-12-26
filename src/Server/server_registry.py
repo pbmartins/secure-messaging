@@ -72,7 +72,7 @@ class ServerRegistry:
 
     def messageWasRed(self, uid, msg):
         msg = str(msg)
-        print(os.path.join(self.userMessageBox(uid), msg))
+
         if msg.startswith("_"):
             return os.path.exists(os.path.join(self.userMessageBox(uid), msg))
         else:
@@ -291,7 +291,6 @@ class ServerRegistry:
         result = {"msg": copy, "receipts": []}
 
         for fname in os.listdir(boxdir):
-            print(fname)
             m = pattern.match(fname)
             if m and m.group(1) == msg:
                 path = os.path.join(self.userReceiptBox(uid), fname)
