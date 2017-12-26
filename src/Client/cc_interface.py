@@ -6,6 +6,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.hazmat.primitives import hashes
 from OpenSSL import crypto
+from termcolor import colored
 import pkcs11
 import getpass
 import os
@@ -18,17 +19,17 @@ try:
         token = t
         break
 except AttributeError:
-    print('ERROR: CC device not connected')
+    print(colored('ERROR: CC device not connected', 'red'))
     sys.exit(0)
 
 
 def get_correct_pin():
-    pin = getpass.getpass("CC Authentication PIN: ")
+    pin = getpass.getpass(colored("CC Authentication PIN: ", 'blue'))
 
     # Get correct pin
     text = "\nIncorrect PIN. Please type the correct PIN: "
     while not test_pin(pin):
-        pin = getpass.getpass(text)
+        pin = getpass.getpass(colored(text, 'red'))
 
     return pin
 
@@ -58,7 +59,7 @@ def get_public_key():
 
             return pub_key
     except AttributeError:
-        print('ERROR: CC device not connected')
+        print(colored('ERROR: CC device not connected', 'red'))
         sys.exit(0)
 
 
@@ -83,7 +84,7 @@ def get_pub_key_certificate():
 
         return cert
     except AttributeError:
-        print('ERROR: CC device not connected')
+        print(colored('ERROR: CC device not connected', 'red'))
         sys.exit(0)
 
 
@@ -111,7 +112,7 @@ def sign(payload, cc_pin=None):
             priv_keys = None
             return signature
     except AttributeError:
-        print('ERROR: CC device not connected')
+        print(colored('ERROR: CC device not connected', 'red'))
         sys.exit(0)
 
 

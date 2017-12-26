@@ -1,0 +1,4 @@
+cryptography
+pyopenssl
+python-pkcs11
+termcolor

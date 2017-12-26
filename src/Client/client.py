@@ -4,6 +4,7 @@ from src.Client.cipher_utils import *
 from src.Client.client_secure import *
 from src.Client.log import logger
 from src.Client.lib import *
+from termcolor import colored
 import json
 import getpass
 import base64
@@ -49,9 +50,11 @@ class Client:
 
     @staticmethod
     def cache_cc_pin():
-        op = input("Do you wish to cache your CC Signature PIN? [y/N]")
+        op = input(colored(
+            "Do you wish to cache your CC Signature PIN? [y/N]", 'green'))
         while op != 'y' and op != 'N':
-            op = input("Do you wish to cache your CC Signature PIN? [y/N]")
+            op = input(colored(
+                "Do you wish to cache your CC Signature PIN? [y/N]", 'green'))
 
         pin = get_correct_pin() if op == 'y' else None
 
@@ -79,14 +82,15 @@ class Client:
             return data
 
     def login(self):
-        print("-------- LOGIN --------")
-        print("Make sure you have your CC inserted.")
-        print("If you don't have an account, it'll be automatically created.")
+        print(colored("-------- LOGIN --------", 'blue'))
+        print(colored("Make sure you have your CC inserted.", 'blue'))
+        print(colored(
+            "If you don't have an account, it'll be automatically created."), 'blue')
         self.cc_certificate = get_pub_key_certificate()
         self.uuid = int(
             self.cc_certificate.digest('sha256').decode().replace(':', ''), 16)
-        print('Login with ', self.uuid, '\n')
-        self.password = getpass.getpass("\nPassword: ")
+        print(colored('Login with ' + str(self.uuid) + '\n', 'blue'))
+        self.password = getpass.getpass(colored("\nPassword: ", 'blue'))
 
         # Generate RSA keys and save them into file
         key_dir = KEYS_DIR + str(self.uuid)
@@ -137,7 +141,7 @@ class Client:
                     )
                     break
                 except:
-                    self.password = getpass.getpass(text)
+                    self.password = getpass.getpass(colored(text, 'red'))
 
             # Read public key from regular file
             pub_key = read_from_file(self.uuid)
@@ -170,7 +174,7 @@ class Client:
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
-            print("ERROR: " + data['error'])
+            print(colored("ERROR: " + data['error'], 'red'))
         else:
             self.user_id = data['result']
 
@@ -182,7 +186,7 @@ class Client:
             # security related fields
         }
 
-        user_id = input("User ID (optional): ")
+        user_id = input(colored("User ID (optional): ", 'blue'))
         if len(user_id):
             payload['id'] = int(user_id)
 
@@ -190,12 +194,12 @@ class Client:
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
-            print("ERROR: " + data['error'])
+            print(colored("ERROR: " + data['error'], 'red'))
         else:
-            print("User UUID(s): ")
+            print(colored("User UUID(s): ", 'green'))
             for i in range(0, len(data['result'])):
-                print(str.format("\tID: {:d} - UUID: {:d}",
-                                 i + 1, data['result'][i]['uuid']))
+                print(colored(str.format("\tID: {:d} - UUID: {:d}",
+                                 i + 1, data['result'][i]['uuid']), 'green'))
 
     def list_all_new_messages(self):
         payload = {
@@ -204,20 +208,20 @@ class Client:
 
         while True:
             try:
-                payload['id'] = int(input("User ID: "))
+                payload['id'] = int(input(colored("User ID: ", 'blue')))
                 break
             except ValueError:
-                print("ERROR: Invalid User ID")
+                print(colored("ERROR: Invalid User ID", 'red'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
-            print("ERROR: " + data['error'])
+            print(colored("ERROR: " + data['error'], 'red'))
         else:
-            print("New message(s): ")
+            print(colored("New message(s): ", 'green'))
             for message in data['result']:
-                print("\t" + message)
+                print(colored("\t" + message, 'green'))
 
     def list_all_messages(self):
         payload = {
@@ -229,21 +233,21 @@ class Client:
                 payload['id'] = int(input("User ID: "))
                 break
             except ValueError:
-                print("ERROR: Invalid User ID")
+                print(colored("ERROR: Invalid User ID", 'red'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
-            print("ERROR: " + data['error'])
+            print(colored("ERROR: " + data['error'], 'red'))
         else:
-            print("All received messages: ")
+            print(colored("All received messages: ", 'green'))
             for message in data['result'][0]:
-                print("\t" + message)
+                print(colored("\t" + message, 'green'))
 
-            print("\n\nAll sent messages: ")
+            print(colored("\n\nAll sent messages: ", 'green'))
             for message in data['result'][1]:
-                print("\t" + message)
+                print(colored("\t" + message, 'green'))
 
     def send_message(self):
         payload = {
@@ -252,20 +256,20 @@ class Client:
 
         while True:
             try:
-                payload['src'] = int(input("Sender User ID: "))
+                payload['src'] = int(input(colored("Sender User ID: ", 'blue')))
                 break
             except ValueError:
-                print("ERROR: Invalid User ID")
+                print(colored("ERROR: Invalid User ID", 'red'))
 
         while True:
             try:
-                payload['dst'] = int(input("Receiver User ID: "))
+                payload['dst'] = int(input(colored("Receiver User ID: ", 'blue')))
                 break
             except ValueError:
-                print("ERROR: Invalid User ID")
+                print(colored("ERROR: Invalid User ID", 'red'))
 
         # Read message
-        print("Message (two line breaks to send it):")
+        print(colored("Message (two line breaks to send it):", 'blue'))
         payload['msg'] = ""
         line = ""
         while True:
@@ -291,17 +295,17 @@ class Client:
         payload['copy'] = self.secure.cipher_message_to_user(
             'message', payload['copy'], payload['src'], self.secure.public_key)
 
-        print('\nSending Message ...\n')
+        print(colored('\nSending Message ...\n', 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
-            print("ERROR: " + data['error'])
+            print(colored("ERROR: " + data['error'], 'red'))
         else:
-            print('\nMessage sent successfully!\n')
-            print("Message ID: " + data['result'][0])
-            print("Receipt ID: " + data['result'][1])
+            print(colored('\nMessage sent successfully!\n', 'green'))
+            print(colored("Message ID: " + data['result'][0], 'green'))
+            print(colored("Receipt ID: " + data['result'][1], 'green'))
 
     def receive_message(self):
         payload = {
@@ -310,44 +314,45 @@ class Client:
 
         while True:
             try:
-                payload['id'] = int(input("Message box's User ID: "))
+                payload['id'] = int(input(colored("Message box's User ID: ", 'blue')))
                 break
             except ValueError:
-                print("ERROR: Invalid User ID")
+                print(colored("ERROR: Invalid User ID", 'red'))
 
         while True:
             try:
-                payload['msg'] = str(input("Message ID: "))
+                payload['msg'] = str(input(colored("Message ID: ", 'blue')))
                 break
             except ValueError:
-                print("ERROR: Invalid message ID")
+                print(colored("ERROR: Invalid message ID", 'red'))
 
-        print('\nGetting Message ...\n')
+        print(colored('\nGetting Message ...\n', 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)
+        data, nounce = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
-            print("ERROR: " + data['error'])
+            print(colored("ERROR: " + data['error'], 'red'))
         else:
-            print("Message Sender ID: " + data['result'][0])
+            print(colored("Message Sender ID: " + data['result'][0], 'green'))
             # Decipher message and remove trailing newlines
             message = self.secure.decipher_message_from_user(
                 data['result'][1], None).rstrip()
-            print("Message: " + message)
+            print(colored("Message: " + message, 'green'))
 
-            print('\nSending receipt ...\n')
+            print(colored('\nSending receipt ...\n', 'yellow'))
 
             # Send receipt
-            self.receipt_message(payload['msg'], message, payload['id'])
+            self.receipt_message(payload['msg'], message, nounce, payload['id'])
 
-    def receipt_message(self, message_id, message, receipt_user_id):
+    def receipt_message(self, message_id, message, nounce, receipt_user_id):
         hash_algorithm = self.secure.cipher_suite['sha']['size']
 
         payload = {
             'type': 'receipt',
             'id': receipt_user_id,
-            'msg': message_id
+            'msg': message_id,
+            'nounce': nounce
         }
 
         # Sign cleartext message
@@ -364,46 +369,47 @@ class Client:
 
         self.send_payload(self.secure.encapsulate_secure_message(payload), response=False)
 
-        print('\nReceipt sent successfully!\n')
+        print(colored('\nReceipt sent successfully!\n', 'green'))
 
     def message_status(self):
         message = {
             'type': 'status'
-            # security related fields
         }
 
         while True:
             try:
-                message['id'] = int(input("Receipts box's User ID: "))
+                message['id'] = int(input(colored("Receipts box's User ID: ", 'blue')))
                 break
             except ValueError:
-                print("ERROR: Invalid User ID")
+                print(colored("ERROR: Invalid User ID", 'red'))
 
         while True:
             try:
-                message['msg'] = str(input("Message ID: "))
+                message['msg'] = str(input(colored("Message ID: ", 'blue')))
                 break
             except ValueError:
-                print("ERROR: Invalid message ID")
+                print(colored("ERROR: Invalid message ID", 'red'))
 
-        print('\nGetting status ...\n')
+        print(colored('\nGetting status ...\n', 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(message))
         data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
-            print("ERROR: " + data['error'])
+            print(colored("ERROR: " + data['error'], 'red'))
         else:
             message = self.secure.decipher_message_from_user(
                 data['result']['msg'], False)
-            print("Message: " + message)
-            print("\nAll receipts: ")
+            print(colored("Message: " + message, 'green'))
+            print(colored("\nAll receipts: ", 'green'))
             for receipt in data['result']['receipts']:
-                print("\tDate: " + time.ctime(float(receipt['date']) / 1000))
-                print("\tReceipt sender ID: " + receipt['id'])
+                print(colored(
+                    "\tDate: " + time.ctime(float(receipt['date']) / 1000), 'green'))
+                print(colored(
+                    "\tReceipt sender ID: " + receipt['id'], 'green'))
                 # TODO: verity signature over receipt and show it (show what?
                 #  signature? cleartext message again?)
-                deciphered_receipt = base64.b64decode(receipt['receipt'].encode())
+                #deciphered_receipt = base64.b64decode(receipt['receipt'].encode())
                 #print("\tReceipt: " + deciphered_receipt)
                 #print("")
 
@@ -424,15 +430,15 @@ def main():
 
     while True:
         print("")
-        print("OPTIONS")
-        print("1 - [LIST] List all user client boxes")
-        print("2 - [NEW] List all new messages in a user's message box")
-        print("3 - [ALL] List all messages in a user's message box")
-        print("4 - [SEND] Send a new message")
-        print("5 - [RECV] Receive a message from a user's message box")
-        print("6 - [STATUS] Check the status of a previously sent message")
-        print("0 - [EXIT] Exit client")
-        op = int(input("Select an option: "))
+        print(colored("OPTIONS", 'blue'))
+        print(colored("1 - [LIST] List all user client boxes", 'blue'))
+        print(colored("2 - [NEW] List all new messages in a user's message box", 'blue'))
+        print(colored("3 - [ALL] List all messages in a user's message box", 'blue'))
+        print(colored("4 - [SEND] Send a new message", 'blue'))
+        print(colored("5 - [RECV] Receive a message from a user's message box", 'blue'))
+        print(colored("6 - [STATUS] Check the status of a previously sent message", 'blue'))
+        print(colored("0 - [EXIT] Exit client", 'blue'))
+        op = int(input(colored("Select an option: ", 'blue')))
         print("")
 
         if op == 0:

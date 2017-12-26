@@ -219,8 +219,6 @@ class ServerRegistry:
                 f = os.path.join(path, msg)
                 path = os.path.join(path, "_" + msg)
                 logger.log(logging.DEBUG, "Marking message " + msg + " as read")
-                print(f)
-                print(path)
                 os.rename(f, path)
             except:
                 logging.exception("Cannot rename message file to " + path)

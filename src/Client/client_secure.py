@@ -176,7 +176,7 @@ class ClientSecure:
         self.number_of_hash_derivations = 0
         self.salt_list = []
 
-        return deciphered_payload
+        return deciphered_payload, message['payload']['nounce']
 
     def encapsulate_resource_message(self, ids):
         # Check if already exists user public infos
