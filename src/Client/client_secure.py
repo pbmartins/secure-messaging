@@ -111,65 +111,78 @@ class ClientSecure:
         return message
 
     def uncapsulate_secure_message(self, message):
+        logger.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
+
         if self.cipher_spec is None:
             self.cipher_spec = message['cipher_spec']
             self.cipher_suite = get_cipher_suite(self.cipher_spec)
 
         assert message['cipher_spec'] == self.cipher_spec
 
+        deciphered_payload = None
+
         # Verify signature and certificate validity
         peer_certificate = deserialize_certificate(message['certificate'])
         if not self.certificates.validate_cert(peer_certificate):
-            print("Invalid certificate")
-        try:
-            rsa_verify(
-                peer_certificate.get_pubkey().to_cryptography_key(),
-                base64.b64decode(message['signature'].encode()),
-                base64.b64decode(message['payload'].encode()),
-                self.cipher_suite['rsa']['sign']['server']['sha'],
-                self.cipher_suite['rsa']['sign']['server']['padding']
+            logger.log(logging.DEBUG, "Invalid certificate; "
+                                      "droping message")
+            deciphered_payload = {'error': 'Invalid server certificate'}
+
+        if deciphered_payload is None:
+            try:
+                rsa_verify(
+                    peer_certificate.get_pubkey().to_cryptography_key(),
+                    base64.b64decode(message['signature'].encode()),
+                    base64.b64decode(message['payload'].encode()),
+                    self.cipher_suite['rsa']['sign']['server']['sha'],
+                    self.cipher_suite['rsa']['sign']['server']['padding']
+                )
+            except InvalidSignature:
+                logger.log(logging.DEBUG, "Invalid signature; "
+                                          "droping message")
+                deciphered_payload = {'error': 'Invalid message signature'}
+
+        if deciphered_payload is None:
+
+            message['payload'] = json.loads(
+                base64.b64decode(message['payload'].encode()))
+
+            # Check if it corresponds to a previously sent message
+            if not message['payload']['nounce'] in self.nounces:
+                deciphered_payload = \
+                    {'error': "Message doesn't match a previously sent message"}
+
+        if deciphered_payload is None:
+            self.nounces.remove(message['payload']['nounce'])
+
+            # Derive AES key and decipher payload
+            salt_idx = self.number_of_hash_derivations - 1
+            self.peer_pub_value = deserialize_key(
+                message['payload']['secdata']['dhpubvalue'])
+            self.peer_salt = base64.b64decode(
+                message['payload']['secdata']['salt'].encode())
+
+            aes_key = derive_key_from_ecdh(
+                self.priv_value,
+                self.peer_pub_value,
+                self.peer_salt,
+                self.salt_list[salt_idx],
+                self.cipher_suite['aes']['key_size'],
+                self.cipher_suite['sha']['size'],
+                self.number_of_hash_derivations,
             )
-        except InvalidSignature:
-            return "Invalid signature"
 
-        message['payload'] = json.loads(
-            base64.b64decode(message['payload'].encode()))
+            aes_cipher, aes_iv = generate_aes_cipher(
+                aes_key,
+                self.cipher_suite['aes']['mode'],
+                base64.b64decode(message['payload']['secdata']['iv'].encode())
+            )
 
-        logger.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
-
-        # Check if it corresponds to a previously sent message
-        if not message['payload']['nounce'] in self.nounces:
-            return "Message not a response to a previously sent message"
-
-        self.nounces.remove(message['payload']['nounce'])
-
-        # Derive AES key and decipher payload
-        salt_idx = self.number_of_hash_derivations - 1
-        self.peer_pub_value = deserialize_key(
-            message['payload']['secdata']['dhpubvalue'])
-        self.peer_salt = base64.b64decode(
-            message['payload']['secdata']['salt'].encode())
-
-        aes_key = derive_key_from_ecdh(
-            self.priv_value,
-            self.peer_pub_value,
-            self.peer_salt,
-            self.salt_list[salt_idx],
-            self.cipher_suite['aes']['key_size'],
-            self.cipher_suite['sha']['size'],
-            self.number_of_hash_derivations,
-        )
-
-        aes_cipher, aes_iv = generate_aes_cipher(
-            aes_key,
-            self.cipher_suite['aes']['mode'],
-            base64.b64decode(message['payload']['secdata']['iv'].encode())
-        )
-
-        decryptor = aes_cipher.decryptor()
-        deciphered_payload = decryptor.update(base64.b64decode(
-            message['payload']['message'].encode())) + decryptor.finalize()
-        deciphered_payload = json.loads(json.loads(deciphered_payload.decode()))
+            decryptor = aes_cipher.decryptor()
+            deciphered_payload = decryptor.update(base64.b64decode(
+                message['payload']['message'].encode())) + decryptor.finalize()
+            deciphered_payload = \
+                json.loads(json.loads(deciphered_payload.decode()))
 
         # Derive new DH values
         self.priv_value, self.pub_value = generate_ecdh_keypair()
@@ -243,45 +256,55 @@ class ClientSecure:
         }
 
         # Sign payload
-        #payload['signature'] = cc.sign(payload['payload'], self.cc_pin)
+        payload['signature'] = cc.sign(payload['payload'], self.cc_pin)
 
         return base64.b64encode(json.dumps(payload).encode()).decode()
 
     def decipher_message_from_user(self, payload, peer_certificate):
-        """
+        deciphered_message = None
+
         # Verify signature and certificate validity
         peer_certificate = deserialize_certificate(peer_certificate)
-        assert self.certificates.validate_cert(peer_certificate)
-        try:
-            rsa_verify(
-                peer_certificate.get_pubkey().to_cryptography_key(),
-                base64.b64decode(payload['signature'].encode()),
-                base64.b64decode(payload['payload'].encode()),
-                self.cipher_suite['sha']['sign']['cc']['sha'],
-                self.cipher_suite['rsa']['sign']['cc']['padding']
+        if not self.certificates.validate_cert(peer_certificate):
+            logger.log(logging.DEBUG, "Invalid certificate; "
+                                      "droping message")
+            deciphered_message = {'error': 'Invalid server certificate'}
+
+        if deciphered_message is None:
+            try:
+                rsa_verify(
+                    peer_certificate.get_pubkey().to_cryptography_key(),
+                    base64.b64decode(payload['signature'].encode()),
+                    base64.b64decode(payload['payload'].encode()),
+                    self.cipher_suite['sha']['sign']['cc']['sha'],
+                    self.cipher_suite['rsa']['sign']['cc']['padding']
+                )
+            except InvalidSignature:
+                logger.log(logging.DEBUG, "Invalid signature; "
+                                          "droping message")
+                deciphered_message = {'error': 'Invalid message signature'}
+
+        if deciphered_message is None:
+            # Decode payload
+            payload = json.loads(base64.b64decode(payload))
+
+            # Decipher AES key and IV
+            aes_iv_key = rsa_decipher(
+                self.private_key,
+                base64.b64decode(payload['payload']['key_iv'].encode()),
+                self.cipher_suite['sha']['size'],
+                self.cipher_suite['rsa']['cipher']['padding']
             )
-        except InvalidSignature:
-            return "Invalid signature"
-        """
-        # Decode payload
-        payload = json.loads(base64.b64decode(payload))
+            aes_iv = aes_iv_key[:16]
+            aes_key = aes_iv_key[16:]
 
-        # Decipher AES key and IV
-        aes_iv_key = rsa_decipher(
-            self.private_key,
-            base64.b64decode(payload['payload']['key_iv'].encode()),
-            self.cipher_suite['sha']['size'],
-            self.cipher_suite['rsa']['cipher']['padding']
-        )
-        aes_iv = aes_iv_key[:16]
-        aes_key = aes_iv_key[16:]
+            # Decipher payload
+            aes_cipher, aes_iv = generate_aes_cipher(
+                aes_key, self.cipher_suite['aes']['mode'], aes_iv)
 
-        # Decipher payload
-        aes_cipher, aes_iv = generate_aes_cipher(
-            aes_key, self.cipher_suite['aes']['mode'], aes_iv)
+            decryptor = aes_cipher.decryptor()
+            deciphered_message = decryptor.update(base64.b64decode(
+                payload['payload']['message'].encode())) + decryptor.finalize()
+            deciphered_message = deciphered_message.decode()
 
-        decryptor = aes_cipher.decryptor()
-        deciphered_message = decryptor.update(base64.b64decode(
-            payload['payload']['message'].encode())) + decryptor.finalize()
-
-        return deciphered_message.decode()
+        return deciphered_message

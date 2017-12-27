@@ -20,7 +20,8 @@ class ServerActions:
             'receipt': self.processReceipt,
             'status': self.processStatus,
             'resource': self.processResource,
-            'init': self.processInit
+            'init': self.processInit,
+            'error': self.processError
         }
 
         self.registry = ServerRegistry()
@@ -270,3 +271,8 @@ class ServerActions:
         logger.log(logging.DEBUG, "%s" % json.dumps(data))
 
         client.sendResult({"message": ""}, nounce)
+
+    def processError(self, data, client, nounce):
+        logger.log(logging.DEBUG, "%s" % json.dumps(data))
+        logger.log(logging.DEBUG, "Dropping message.")
+
