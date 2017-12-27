@@ -78,8 +78,11 @@ class Client:
                          + '\r\n'.encode('utf-8'))
             to_send = to_send[BUFSIZE:]
         if response:
-            data = json.loads(self.ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
-            return data
+            try:
+                data = json.loads(self.ss.recv(BUFSIZE).decode('utf-8').split(TERMINATOR)[0])
+                return data
+            except:
+                print('ERROR: Invalid response from server', 'red')
 
     def login(self):
         print(colored("-------- LOGIN --------", 'blue'))
@@ -171,7 +174,7 @@ class Client:
         }
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)
+        data = self.secure.uncapsulate_secure_message(data)[0]
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
@@ -183,23 +186,32 @@ class Client:
     def list_message_boxes(self):
         payload = {
             'type': 'list'
-            # security related fields
         }
 
-        user_id = input(colored("User ID (optional): ", 'blue'))
-        if len(user_id):
-            payload['id'] = int(user_id)
+        while True:
+            try:
+                user_id = input(colored("User ID (optional): ", 'blue'))
+                if len(user_id):
+                    payload['id'] = int(user_id)
+                break
+            except ValueError:
+                print(colored("ERROR: Invalid User ID", 'red'))
+
+        print(colored('\nGetting message boxes list ...\n', 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)
+        data = self.secure.uncapsulate_secure_message(data)[0]
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
+        elif data['result'] is None:
+            print(colored("No users found with id " + user_id, 'red'))
         else:
             print(colored("User UUID(s): ", 'green'))
-            for i in range(0, len(data['result'])):
+            for user in data['result']:
                 print(colored(str.format("\tID: {:d} - UUID: {:d}",
-                                 i + 1, data['result'][i]['uuid']), 'green'))
+                                         user['id'], user['description']['uuid']),
+                              'green'))
 
     def list_all_new_messages(self):
         payload = {
@@ -213,15 +225,20 @@ class Client:
             except ValueError:
                 print(colored("ERROR: Invalid User ID", 'red'))
 
+        print(colored(str.format('\nGetting new messages for user {:d} ...\n',
+                                 payload['id']), 'yellow'))
+
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)
+        data = self.secure.uncapsulate_secure_message(data)[0]
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
-        else:
+        elif data['result']:
             print(colored("New message(s): ", 'green'))
             for message in data['result']:
                 print(colored("\t" + message, 'green'))
+        else:
+            print(colored("No new message(s)", 'green'))
 
     def list_all_messages(self):
         payload = {
@@ -230,24 +247,33 @@ class Client:
 
         while True:
             try:
-                payload['id'] = int(input("User ID: "))
+                payload['id'] = int(input(colored("User ID: ", 'blue')))
                 break
             except ValueError:
                 print(colored("ERROR: Invalid User ID", 'red'))
 
+        print(colored(str.format('\nGetting all messages for user {:d} ...\n',
+                                 payload['id']), 'yellow'))
+
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)
+        data = self.secure.uncapsulate_secure_message(data)[0]
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
-            print(colored("All received messages: ", 'green'))
-            for message in data['result'][0]:
-                print(colored("\t" + message, 'green'))
+            if data['result'][0]:
+                print(colored("All received messages: ", 'green'))
+                for message in data['result'][0]:
+                    print(colored("\t" + message, 'green'))
+            else:
+                print(colored("No received messages", 'green'))
 
-            print(colored("\n\nAll sent messages: ", 'green'))
-            for message in data['result'][1]:
-                print(colored("\t" + message, 'green'))
+            if data['result'][1]:
+                print(colored("\n\nAll sent messages: ", 'green'))
+                for message in data['result'][1]:
+                    print(colored("\t" + message, 'green'))
+            else:
+                print(colored("No sent messages", 'green'))
 
     def send_message(self):
         payload = {
@@ -281,13 +307,23 @@ class Client:
 
         payload['copy'] = payload['msg']
 
+        print(colored('\nSending Message ...\n', 'yellow'))
+
         # Get receiver public key and certificate
         resource_payload = self.secure.encapsulate_resource_message([payload['dst']])
         if resource_payload is not None:
             data = self.send_payload(
                 self.secure.encapsulate_secure_message(resource_payload))
-            self.secure.uncapsulate_resource_message(
-                self.secure.uncapsulate_secure_message(data))
+            resource_data = self.secure.uncapsulate_secure_message(data)[0]
+
+            if 'error' in resource_data:
+                print(colored("ERROR: " + resource_data['error'], 'red'))
+                return
+            elif resource_data['result'][0]['rsapubkey'] is None:
+                print(colored('User does not exist', 'red'))
+                return
+
+            self.secure.uncapsulate_resource_message(resource_data)
 
         # Cipher sender and receiver message
         payload['msg'] = self.secure.cipher_message_to_user(
@@ -295,10 +331,8 @@ class Client:
         payload['copy'] = self.secure.cipher_message_to_user(
             'message', payload['copy'], payload['src'], self.secure.public_key)
 
-        print(colored('\nSending Message ...\n', 'yellow'))
-
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)
+        data = self.secure.uncapsulate_secure_message(data)[0]
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
@@ -393,7 +427,7 @@ class Client:
         print(colored('\nGetting status ...\n', 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(message))
-        data = self.secure.uncapsulate_secure_message(data)
+        data = self.secure.uncapsulate_secure_message(data)[0]
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
@@ -438,23 +472,29 @@ def main():
         print(colored("5 - [RECV] Receive a message from a user's message box", 'blue'))
         print(colored("6 - [STATUS] Check the status of a previously sent message", 'blue'))
         print(colored("0 - [EXIT] Exit client", 'blue'))
-        op = int(input(colored("Select an option: ", 'blue')))
-        print("")
 
-        if op == 0:
-            break
-        elif op == 1:
-            client.list_message_boxes()
-        elif op == 2:
-            client.list_all_new_messages()
-        elif op == 3:
-            client.list_all_messages()
-        elif op == 4:
-            client.send_message()
-        elif op == 5:
-            client.receive_message()
-        elif op == 6:
-            client.message_status()
+        try:
+            op = int(input(colored("Select an option: ", 'blue')))
+            print("")
+
+            if op == 0:
+                break
+            elif op == 1:
+                client.list_message_boxes()
+            elif op == 2:
+                client.list_all_new_messages()
+            elif op == 3:
+                client.list_all_messages()
+            elif op == 4:
+                client.send_message()
+            elif op == 5:
+                client.receive_message()
+            elif op == 6:
+                client.message_status()
+            else:
+                print(colored("Invalid option!", 'red'))
+        except ValueError:
+            print(colored("Invalid option!", 'red'))
 
     client.ss.close()
     return

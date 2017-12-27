@@ -147,7 +147,7 @@ class ServerRegistry:
 
         userList = []
         for k in list(self.users.keys()):
-            userList.append(self.users[k].description)
+            userList.append(self.users[k])
 
         return userList
 
