@@ -104,7 +104,6 @@ class ServerSecure:
         assert message['cipher_spec'] == self.cipher_spec
 
         deciphered_payload = None
-        nounce = None
 
         # Verify signature and certificate validity
         peer_certificate = deserialize_certificate(message['certificate'])
@@ -129,9 +128,13 @@ class ServerSecure:
                 deciphered_payload = {'type': 'error',
                                       'error': 'Invalid message signature'}
 
+        message['payload'] = json.loads(
+            base64.b64decode(message['payload'].encode()))
+
+        nounce = message['payload']['nounce']
+
         if deciphered_payload is None:
-            message['payload'] = json.loads(
-                base64.b64decode(message['payload'].encode()))
+
 
             # Derive AES key and decipher payload
             self.number_of_hash_derivations = \
@@ -167,7 +170,5 @@ class ServerSecure:
                     message['payload']['message'].encode())) + \
                                      decryptor.finalize()
                 deciphered_payload = json.loads(deciphered_payload.decode())
-
-            nounce = message['payload']['nounce']
 
         return deciphered_payload, nounce

@@ -242,13 +242,20 @@ class ClientSecure:
         )
 
         # Generate nounce to verify message readings
-        nounce = base64.b64encode(get_nounce(16, message.encode(),
-                self.cipher_suite['sha']['size'])).decode()
+        nounce = get_nounce(16, message.encode(),
+                            self.cipher_suite['sha']['size'])
+
+        ciphered_nounce = rsa_cipher(
+            peer_rsa_pubkey,
+            nounce,
+            self.cipher_suite['sha']['size'],
+            self.cipher_suite['rsa']['cipher']['padding']
+        )
 
         payload = {
             'payload': {
                 payload_type: base64.b64encode(ciphered_message).decode(),
-                'nounce': nounce,
+                'nounce': base64.b64encode(ciphered_nounce).decode(),
                 'key_iv': base64.b64encode(ciphered_aes_iv_key).decode()
             },
             'signature': None,
@@ -284,6 +291,7 @@ class ClientSecure:
                                           "droping message")
                 deciphered_message = {'error': 'Invalid message signature'}
 
+        nounce = None
         if deciphered_message is None:
             # Decode payload
             payload = json.loads(base64.b64decode(payload))
@@ -298,6 +306,13 @@ class ClientSecure:
             aes_iv = aes_iv_key[:16]
             aes_key = aes_iv_key[16:]
 
+            nounce = rsa_decipher(
+                self.private_key,
+                base64.b64decode(payload['payload']['nounce'].encode()),
+                self.cipher_suite['sha']['size'],
+                self.cipher_suite['rsa']['cipher']['padding']
+            )
+
             # Decipher payload
             aes_cipher, aes_iv = generate_aes_cipher(
                 aes_key, self.cipher_suite['aes']['mode'], aes_iv)
@@ -307,4 +322,4 @@ class ClientSecure:
                 payload['payload']['message'].encode())) + decryptor.finalize()
             deciphered_message = deciphered_message.decode()
 
-        return deciphered_message
+        return deciphered_message, nounce

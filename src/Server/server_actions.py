@@ -274,5 +274,6 @@ class ServerActions:
 
     def processError(self, data, client, nounce):
         logger.log(logging.DEBUG, "%s" % json.dumps(data))
-        logger.log(logging.DEBUG, "Dropping message.")
+
+        client.sendResult(data, nounce)
 
