@@ -203,6 +203,7 @@ class ServerActions:
         fromId = int(data["id"])
         msg = str(data['msg'])
         receipt = str(data['receipt'])
+        message_nounce = data['nounce']
 
         if not self.registry.messageWasRed(str(fromId), msg):
             logger.log(logging.ERROR,
@@ -210,6 +211,8 @@ class ServerActions:
                     data))
             client.sendResult({"error": "wrong parameters"}, nounce)
             return
+
+        # TODO: Compare nounces
 
         self.registry.storeReceipt(fromId, msg, receipt)
 
@@ -260,6 +263,7 @@ class ServerActions:
                     'cipher_spec': cipher_spec
                 }
             ]
+
         client.sendResult({"result": result}, nounce)
 
     def processInit(self, data, client, nounce):

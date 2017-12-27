@@ -6,6 +6,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.hazmat.primitives import hashes
 from OpenSSL import crypto
+from termcolor import colored
 import pkcs11
 import getpass
 import os
@@ -18,8 +19,27 @@ try:
         token = t
         break
 except AttributeError:
-    print('ERROR: CC device not connected')
+    print(colored('ERROR: CC device not connected', 'red'))
     sys.exit(0)
+
+
+def get_correct_pin():
+    pin = getpass.getpass(colored("CC Authentication PIN: ", 'blue'))
+
+    # Get correct pin
+    text = "\nIncorrect PIN. Please type the correct PIN: "
+    while not test_pin(pin):
+        pin = getpass.getpass(colored(text, 'red'))
+
+    return pin
+
+
+def test_pin(cc_pin):
+    try:
+        with token.open(user_pin=cc_pin) as session:
+            return True
+    except:
+        return False
 
 
 def get_public_key():
@@ -39,7 +59,7 @@ def get_public_key():
 
             return pub_key
     except AttributeError:
-        print('ERROR: CC device not connected')
+        print(colored('ERROR: CC device not connected', 'red'))
         sys.exit(0)
 
 
@@ -64,13 +84,12 @@ def get_pub_key_certificate():
 
         return cert
     except AttributeError:
-        print('ERROR: CC device not connected')
+        print(colored('ERROR: CC device not connected', 'red'))
         sys.exit(0)
 
 
 def sign(payload, cc_pin=None):
-    pin = getpass.getpass("CC Authentication PIN: ") \
-        if cc_pin is None else cc_pin
+    pin = get_correct_pin() if cc_pin is None else cc_pin
 
     try:
         # Open a session on our token
@@ -93,7 +112,7 @@ def sign(payload, cc_pin=None):
             priv_keys = None
             return signature
     except AttributeError:
-        print('ERROR: CC device not connected')
+        print(colored('ERROR: CC device not connected', 'red'))
         sys.exit(0)
 
 

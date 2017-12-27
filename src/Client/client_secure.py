@@ -176,7 +176,7 @@ class ClientSecure:
         self.number_of_hash_derivations = 0
         self.salt_list = []
 
-        return deciphered_payload
+        return deciphered_payload, message['payload']['nounce']
 
     def encapsulate_resource_message(self, ids):
         # Check if already exists user public infos
@@ -205,9 +205,7 @@ class ClientSecure:
                 'cipher_spec': get_cipher_suite(user['cipher_spec'])
             }
 
-    def cipher_message_to_user(self, payload_type, message, user_id):
-        assert user_id in self.user_certificates
-
+    def cipher_message_to_user(self, payload_type, message, user_id, peer_rsa_pubkey=None):
         # Cipher payload
         aes_key = os.urandom(self.cipher_suite['aes']['key_size'])
         aes_cipher, aes_iv = generate_aes_cipher(
@@ -217,7 +215,8 @@ class ClientSecure:
         ciphered_message = encryptor.update(json.dumps(message).encode()) + \
                            encryptor.finalize()
 
-        peer_rsa_pubkey = self.user_certificates[user_id]['pub_key']
+        if peer_rsa_pubkey is None:
+            peer_rsa_pubkey = self.user_certificates[user_id]['pub_key']
 
         # Cipher AES key and IV
         aes_iv_key = aes_iv + aes_key
