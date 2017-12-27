@@ -80,7 +80,6 @@ class ServerActions:
             return
 
         me = self.registry.addUser(data)
-        print("(processCreate) Added new user:", self.registry.users)
         # TODO: Add security data to user profile
         client.sendResult({"result": me.id}, nounce)
 

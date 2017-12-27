@@ -100,13 +100,12 @@ class ServerSecure:
 
     def uncapsulate_secure_message(self, message):
         assert message['cipher_spec'] == self.cipher_spec
-        """
+
         # Verify signature and certificate validity
         peer_certificate = deserialize_certificate(message['certificate'])
         if not self.certs.validate_cert(peer_certificate):
             print("Invalid certificate")
         try:
-            print(self.cipher_suite['rsa']['sign']['cc']['padding'])
             rsa_verify(
                 peer_certificate.get_pubkey().to_cryptography_key(),
                 base64.b64decode(message['signature'].encode()),
@@ -116,7 +115,7 @@ class ServerSecure:
             )
         except InvalidSignature:
             return "Invalid signature"
-        """
+
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
 

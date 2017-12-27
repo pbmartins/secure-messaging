@@ -95,7 +95,6 @@ class ClientSecure:
             }
         }).encode()
 
-        #signature = None
         signature = cc.sign(message_payload, self.cc_pin)
 
         # Build message
@@ -117,10 +116,11 @@ class ClientSecure:
             self.cipher_suite = get_cipher_suite(self.cipher_spec)
 
         assert message['cipher_spec'] == self.cipher_spec
-        """
+
         # Verify signature and certificate validity
         peer_certificate = deserialize_certificate(message['certificate'])
-        assert self.certificates.validate_cert(peer_certificate)
+        if not self.certificates.validate_cert(peer_certificate):
+            print("Invalid certificate")
         try:
             rsa_verify(
                 peer_certificate.get_pubkey().to_cryptography_key(),
@@ -131,7 +131,7 @@ class ClientSecure:
             )
         except InvalidSignature:
             return "Invalid signature"
-        """
+
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
 

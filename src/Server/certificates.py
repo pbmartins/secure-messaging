@@ -3,8 +3,10 @@ from src.Server.lib import *
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from datetime import datetime
 import wget
 import os
+import shutil
 import base64
 import logging
 
@@ -15,6 +17,20 @@ class X509Certificates:
     def deserialize_certificate(cert):
         return crypto.load_certificate(crypto.FILETYPE_PEM,
                                        base64.b64decode(cert.encode()))
+
+    @classmethod
+    def download_crl(cls, cert, download_type):
+        url = download_type(cert)
+        if url is None:
+            return None, None
+
+        crl_download = wget.download(url, out=CRLS_DIR[:-1])
+
+        with open(crl_download, 'rb') as f:
+            crl = crypto.load_crl(crypto.FILETYPE_ASN1, f.read())
+
+        return crl, crl_download
+
     @classmethod
     def get_extension(cls, cert, short_name):
         for i in range(0, cert.get_extension_count()):
@@ -33,6 +49,16 @@ class X509Certificates:
             return None
 
     @classmethod
+    def get_delta_url(cls, cert):
+        extension = cls.get_extension(cert, b'freshestCRL')
+        try:
+            value = extension.get_data()
+            url = 'http' + value.split(b'http')[1].decode()
+            return url
+        except:
+            return None
+
+    @classmethod
     def get_ocsp_url(cls, cert):
         extension = cls.get_extension(cert, b'authorityInfoAccess')
         try:
@@ -42,6 +68,13 @@ class X509Certificates:
         except:
             return None
 
+    @classmethod
+    def reset_crl_folder(cls):
+        if os.path.exists(CRLS_DIR):
+            shutil.rmtree(CRLS_DIR)
+
+        os.makedirs(CRLS_DIR)
+
     def __init__(self, users):
         self.priv_key = None
         self.pub_key = None
@@ -50,7 +83,8 @@ class X509Certificates:
         self.crls = {}
         self.certs = {}
 
-        self.store = crypto.X509Store()
+        X509Certificates.reset_crl_folder()
+
         self.import_user_certs(users)
         self.import_certs(XCA_DIR)
         self.import_certs(CERTS_DIR)
@@ -62,7 +96,6 @@ class X509Certificates:
             cc_cert = X509Certificates.deserialize_certificate(
                 user['description']['secdata']['cccertificate'])
             self.certs[user['id']] = cc_cert
-            self.store.add_cert(cc_cert)
 
     def import_certs(self, directory):
         files = [f for f in os.listdir(directory)]
@@ -103,9 +136,6 @@ class X509Certificates:
                 certs[cert.get_subject().commonName] = cert
                 self.certs[cert.get_subject().commonName] = cert
 
-        for subject in certs.keys():
-            self.store.add_cert(certs[subject])
-
     def import_keys(self):
         f = open(XCA_DIR + 'SecurityServer.pem', 'rb')
 
@@ -113,36 +143,57 @@ class X509Certificates:
             f.read(), None, default_backend())
         self.pub_key = self.cert.get_pubkey().to_cryptography_key()
 
-    # TODO: Check CRL date periodically
     def check_expiration_or_revoked(self, cert):
         # Check time validity
         if cert.has_expired():
             return False
 
-        # Check if it has been revoked
+        # Download CRLs and deltas
         issuer = cert.get_issuer().commonName
-        if issuer not in self.crls:
-            crl_download = wget.download(
-                X509Certificates.get_crl_url(cert), out=CRLS_DIR[:-1])
-            print(crl_download)
+        if issuer not in self.crls or datetime.today() > \
+                self.crls[issuer]['crl'].to_cryptography().next_update:
+            # Download CRL
+            crl, crl_path = X509Certificates.download_crl(
+                cert, X509Certificates.get_crl_url)
 
-            f = open(crl_download, 'rb')
-            crl = crypto.load_crl(crypto.FILETYPE_ASN1, f.read())
+            # If CRL is inexistant, consider the certificate valid
+            if crl is None:
+                return True
 
-            self.crls[issuer] = crl_download
-        else:
-            f = open(self.crls[issuer], 'rb')
-            crl = crypto.load_crl(crypto.FILETYPE_ASN1, f.read())
+            self.crls[issuer] = {'path': crl_path, 'crl': crl, 'delta': None}
 
-        revoked_serials = [int(c.get_serial(), 16) for c in crl.get_revoked()]
+        if self.crls[issuer]['delta'] is None or datetime.today() > \
+                self.crls[issuer]['delta']['crl'].to_cryptography().next_update:
+            # Download delta CRL
+            delta, delta_path = X509Certificates.download_crl(
+                cert, X509Certificates.get_delta_url)
+
+            if delta is not None:
+                self.crls[issuer]['delta'] = {'path': delta_path, 'crl': delta}
+
+        # Check if the certificate has been revoked
+        revoked_serials = []
+        for issuer in self.crls.keys():
+            crl = self.crls[issuer]
+            print(crl)
+            rev = crl['crl'].get_revoked() \
+                if crl['crl'].get_revoked() is not None else []
+            revoked_serials += [int(c.get_serial(), 16) for c in rev] \
+                if rev is not None else []
+
+            rev = crl['delta']['crl'].get_revoked() \
+                if crl['delta'] is not None \
+                   and crl['delta']['crl'].get_revoked() is not None else []
+            revoked_serials += [int(c.get_serial(), 16) for c in rev]
+
         return cert.get_serial_number() not in revoked_serials
 
-    # TODO: Check all the chain
+    # TODO: First test OSCP, then CRL
     def validate_cert(self, cert):
         c = cert
 
         logger.log(logging.DEBUG, "Verifying certificate validity: %r"
-                   % cert.get_issuer.commonName)
+                   % cert.get_issuer().commonName)
         # Check if all certificates in the chain are valid
         while True:
             if c.get_issuer().commonName not in self.certs.keys():
@@ -157,9 +208,20 @@ class X509Certificates:
 
         # Check if the chain is valid
         try:
+            # Create certificate store
+            store = crypto.X509Store()
+            store.set_flags(crypto.X509StoreFlags.CRL_CHECK_ALL)
+            for subject in self.certs.keys():
+                store.add_cert(self.certs[subject])
+
+            for subject in self.crls.keys():
+                store.add_crl(self.crls[subject]['crl'])
+                if self.crls[subject]['delta'] is not None:
+                    store.add_crl(self.crls[subject]['delta']['crl'])
+
             # Create a certificate context using the store and
             # the certificate to be verified
-            store_ctx = crypto.X509StoreContext(self.store, cert)
+            store_ctx = crypto.X509StoreContext(store, cert)
 
             # Verify the certificate, returns None
             # if it can validate the certificate
@@ -169,4 +231,5 @@ class X509Certificates:
             return True
 
         except Exception as e:
+            print(e)
             return False
