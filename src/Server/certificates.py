@@ -1,9 +1,12 @@
 from src.Server.log import logger
-from src.Server.lib import *
+from src.Server import lib
+from src.Client.cipher_utils import *
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from cryptography.x509 import oid, extensions
 from datetime import datetime
+from subprocess import check_output
 import wget
 import os
 import shutil
@@ -13,18 +16,13 @@ import logging
 
 # Only accepts OpenSSL X509 Objects
 class X509Certificates:
-    @staticmethod
-    def deserialize_certificate(cert):
-        return crypto.load_certificate(crypto.FILETYPE_PEM,
-                                       base64.b64decode(cert.encode()))
-
     @classmethod
     def download_crl(cls, cert, download_type):
         url = download_type(cert)
         if url is None:
             return None, None
 
-        crl_download = wget.download(url, out=CRLS_DIR[:-1])
+        crl_download = wget.download(url, out=lib.CRLS_DIR[:-1])
 
         with open(crl_download, 'rb') as f:
             crl = crypto.load_crl(crypto.FILETYPE_ASN1, f.read())
@@ -69,11 +67,34 @@ class X509Certificates:
             return None
 
     @classmethod
-    def reset_crl_folder(cls):
-        if os.path.exists(CRLS_DIR):
-            shutil.rmtree(CRLS_DIR)
+    def get_ocsp_response(cls, cert_path, issuer_path, ocsp_url):
+        try:
+            response = check_output(['openssl', 'ocsp', '-issuer', issuer_path,
+                                     '-cert', cert_path, '-url', ocsp_url,
+                                     '-CAfile', lib.CERTS_DIR + 'ca'])
 
-        os.makedirs(CRLS_DIR)
+            for line in response.decode().split('\n'):
+                if cert_path in line:
+                    r = line.split(':')[1].strip()
+                    return True if r == 'good' else False
+
+            return False
+        except Exception:
+            return False
+
+    @classmethod
+    def create_folders(cls):
+        if not os.path.exists(lib.CERTS_DIR):
+            os.makedirs(lib.CERTS_DIR)
+            # TODO: script to download them
+
+        if not os.path.exists(lib.USER_CERTS_DIR):
+            os.makedirs(lib.USER_CERTS_DIR)
+
+        if os.path.exists(lib.CRLS_DIR):
+            shutil.rmtree(lib.CRLS_DIR)
+
+        os.makedirs(lib.CRLS_DIR)
 
     def __init__(self, users):
         self.priv_key = None
@@ -83,30 +104,58 @@ class X509Certificates:
         self.crls = {}
         self.certs = {}
 
-        X509Certificates.reset_crl_folder()
+        X509Certificates.create_folders()
 
         self.import_user_certs(users)
-        self.import_certs(XCA_DIR)
-        self.import_certs(CERTS_DIR)
+        self.import_certs(lib.XCA_DIR)
+        self.import_certs(lib.CERTS_DIR)
         self.import_keys()
 
     def import_user_certs(self, users):
         for uid in users:
             user = users[uid]
-            cc_cert = X509Certificates.deserialize_certificate(
+            cc_cert = deserialize_certificate(
                 user['description']['secdata']['cccertificate'])
-            self.certs[user['id']] = cc_cert
+
+            # Save it to file if it doesn't exist
+            # to be able to verify it via OCSP
+            path = lib.USER_CERTS_DIR + \
+                   cc_cert.get_subject().commonName.replace(' ', '_')
+            if not os.path.isfile(path):
+                with open(path, 'wb') as f:
+                    f.write(
+                        crypto.dump_certificate(crypto.FILETYPE_PEM, cc_cert))
+
+            self.certs[user['id']] = {'cert': cc_cert, 'path': path}
+
+    def get_user_cert(self, uuid, cert):
+        if uuid not in self.certs:
+            # Save it to file if it doesn't exist
+            # to be able to verify it via OCSP
+            path = lib.USER_CERTS_DIR + uuid
+            if not os.path.isfile(path):
+                with open(path, 'wb') as f:
+                    f.write(
+                        crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+
+            self.certs[uuid] = {'cert': cert, 'path': path}
+
+        return self.certs[uuid]
 
     def import_certs(self, directory):
         files = [f for f in os.listdir(directory)]
-        certs = {}
 
         for f_name in files:
             cert = None
+            path = directory + f_name
+
+            # Make sure is not a directory
+            if os.path.isdir(path):
+                continue
 
             # Trying to read it as PEM
             try:
-                f = open(directory + f_name, 'rb')
+                f = open(path, 'rb')
                 cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
             except crypto.Error:
                 logger.log(logging.DEBUG, "Not a PEM Certificate: %r" % f_name)
@@ -116,7 +165,7 @@ class X509Certificates:
             if cert is None:
                 # Trying to read it as DER
                 try:
-                    f = open(directory + f_name, 'rb')
+                    f = open(path, 'rb')
                     cert = crypto.load_certificate(
                         crypto.FILETYPE_ASN1, f.read())
                     logger.log(logging.DEBUG,
@@ -133,30 +182,38 @@ class X509Certificates:
             elif cert.get_subject().commonName == 'ServerCA':
                 self.ca_cert = cert
             elif cert.get_subject().commonName not in self.certs.keys():
-                certs[cert.get_subject().commonName] = cert
-                self.certs[cert.get_subject().commonName] = cert
+                self.certs[cert.get_subject().commonName] = \
+                    {'cert': cert, 'path': path}
 
     def import_keys(self):
-        f = open(XCA_DIR + 'SecurityServer.pem', 'rb')
+        f = open(lib.XCA_DIR + 'SecurityServer.pem', 'rb')
 
         self.priv_key = serialization.load_pem_private_key(
             f.read(), None, default_backend())
         self.pub_key = self.cert.get_pubkey().to_cryptography_key()
 
-    def check_expiration_or_revoked(self, cert):
+    def check_expiration_or_revoked(self, cert_entry):
+        cert = cert_entry['cert']
+        issuer = cert.get_issuer().commonName
+
         # Check time validity
         if cert.has_expired():
             return False
 
+        # Try first OCSP
+        ocsp_url = X509Certificates.get_ocsp_url(cert)
+        if ocsp_url is not None:
+            return X509Certificates.get_ocsp_response(
+                cert_entry['path'], self.certs[issuer]['path'], ocsp_url)
+
         # Download CRLs and deltas
-        issuer = cert.get_issuer().commonName
         if issuer not in self.crls or datetime.today() > \
                 self.crls[issuer]['crl'].to_cryptography().next_update:
             # Download CRL
             crl, crl_path = X509Certificates.download_crl(
                 cert, X509Certificates.get_crl_url)
 
-            # If CRL is inexistant, consider the certificate valid
+            # If CRL is inexistant, certificate is valid
             if crl is None:
                 return True
 
@@ -175,7 +232,6 @@ class X509Certificates:
         revoked_serials = []
         for issuer in self.crls.keys():
             crl = self.crls[issuer]
-            print(crl)
             rev = crl['crl'].get_revoked() \
                 if crl['crl'].get_revoked() is not None else []
             revoked_serials += [int(c.get_serial(), 16) for c in rev] \
@@ -188,23 +244,45 @@ class X509Certificates:
 
         return cert.get_serial_number() not in revoked_serials
 
-    # TODO: First test OSCP, then CRL
     def validate_cert(self, cert):
-        c = cert
-
         logger.log(logging.DEBUG, "Verifying certificate validity: %r"
-                   % cert.get_issuer().commonName)
+                   % cert.get_subject().commonName)
+
+        c = self.get_user_cert(
+            cert.get_subject().commonName.replace(' ', '_'), cert)
+
+        # Check if it has extension KeyUsage with digital signature
+        try:
+            ext = cert.to_cryptography().extensions.get_extension_for_oid(
+                oid.ExtensionOID.KEY_USAGE)
+
+            if not ext.value.digital_signature:
+                logger.log(logging.DEBUG, "Invalid certificate: %r"
+                           % cert.get_subject().commonName)
+                return False
+        except extensions.ExtensionNotFound:
+            return False
+
         # Check if all certificates in the chain are valid
         while True:
-            if c.get_issuer().commonName not in self.certs.keys():
+            subject = c['cert'].get_subject().commonName
+            issuer = c['cert'].get_issuer().commonName
+            if issuer not in self.certs.keys():
+                logger.log(logging.DEBUG, "Invalid certificate: %r"
+                           % cert.get_subject().commonName)
                 return False
 
-            if c.get_issuer().commonName == c.get_subject().commonName:
+            # Self-signed -> stop chain
+            if issuer == subject:
                 break
 
+            # Check validity
             if not self.check_expiration_or_revoked(c):
+                logger.log(logging.DEBUG, "Invalid certificate: %r"
+                           % cert.get_subject().commonName)
                 return False
-            c = self.certs[c.get_issuer().commonName]
+
+            c = self.certs[issuer]
 
         # Check if the chain is valid
         try:
@@ -212,7 +290,7 @@ class X509Certificates:
             store = crypto.X509Store()
             store.set_flags(crypto.X509StoreFlags.CRL_CHECK_ALL)
             for subject in self.certs.keys():
-                store.add_cert(self.certs[subject])
+                store.add_cert(self.certs[subject]['cert'])
 
             for subject in self.crls.keys():
                 store.add_crl(self.crls[subject]['crl'])
@@ -228,8 +306,11 @@ class X509Certificates:
             store_ctx.verify_certificate()
 
             # If it gets here, it means it's valid
+            logger.log(logging.DEBUG, "Valid certificate: %r"
+                       % cert.get_subject().commonName)
             return True
 
         except Exception as e:
-            print(e)
+            logger.log(logging.DEBUG, "Invalid certificate: %r"
+                       % cert.get_subject().commonName)
             return False

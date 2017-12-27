@@ -1,8 +1,10 @@
 *.DS_STORE
 *.pyc
+src/Server/certs/users/
 src/Server/crls/
 src/Server/mboxes/
 src/Server/receipts/
 src/Client/keys/
+src/Client/certs/users/
 src/Client/crls/
 .idea

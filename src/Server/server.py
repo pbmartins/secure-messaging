@@ -67,7 +67,12 @@ class Server:
                 self.clients[csock])
             return
 
-        client = Client(csock, addr, Server.server_actions.registry, Server.server_actions.certificates)
+        client = Client(
+            csock,
+            addr,
+            Server.server_actions.registry,
+            Server.server_actions.certificates
+        )
         self.clients[client.socket] = client
         logger.log(logging.DEBUG, "Client added: %s" % client)
 
