@@ -174,7 +174,7 @@ class Client:
         }
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)[0]
+        data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
@@ -200,7 +200,7 @@ class Client:
         print(colored('\nGetting message boxes list ...\n', 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)[0]
+        data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
@@ -229,7 +229,7 @@ class Client:
                                  payload['id']), 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)[0]
+        data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
@@ -256,7 +256,7 @@ class Client:
                                  payload['id']), 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)[0]
+        data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
@@ -314,7 +314,7 @@ class Client:
         if resource_payload is not None:
             data = self.send_payload(
                 self.secure.encapsulate_secure_message(resource_payload))
-            resource_data = self.secure.uncapsulate_secure_message(data)[0]
+            resource_data = self.secure.uncapsulate_secure_message(data)
 
             if 'error' in resource_data:
                 print(colored("ERROR: " + resource_data['error'], 'red'))
@@ -332,7 +332,7 @@ class Client:
             'message', payload['copy'], payload['src'], self.secure.public_key)
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data = self.secure.uncapsulate_secure_message(data)[0]
+        data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
@@ -363,15 +363,39 @@ class Client:
         print(colored('\nGetting Message ...\n', 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
-        data, nounce = self.secure.uncapsulate_secure_message(data)
+        data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
             print(colored("Message Sender ID: " + data['result'][0], 'green'))
-            # Decipher message and remove trailing newlines
-            message = self.secure.decipher_message_from_user(
-                data['result'][1], None).rstrip()
+
+            # Get sender public key and certificate
+            resource_payload = self.secure.encapsulate_resource_message(
+                [int(data['result'][0])])
+            if resource_payload is not None:
+                resource_data = self.secure.uncapsulate_secure_message(
+                    self.send_payload(
+                        self.secure.encapsulate_secure_message(resource_payload)))
+
+                if 'error' in resource_data:
+                    print(colored("ERROR: " + resource_data['error'], 'red'))
+                    return
+                elif resource_data['result'][0]['rsapubkey'] is None:
+                    print(colored('User does not exist', 'red'))
+                    return
+
+                self.secure.uncapsulate_resource_message(resource_data)
+
+            # Decipher message
+            message, nounce = self.secure.decipher_message_from_user(
+                data['result'][1],
+                self.secure.user_certificates[int(data['result'][0])]['certificate'])
+
+            if 'error' in message:
+                print(colored("ERROR: " + message['error'], 'red'))
+                return
+
             print(colored("Message: " + message, 'green'))
 
             print(colored('\nSending receipt ...\n', 'yellow'))
@@ -386,7 +410,7 @@ class Client:
             'type': 'receipt',
             'id': receipt_user_id,
             'msg': message_id,
-            'nounce': nounce
+            'nounce': base64.b64encode(nounce).decode()
         }
 
         # Sign cleartext message
@@ -427,13 +451,13 @@ class Client:
         print(colored('\nGetting status ...\n', 'yellow'))
 
         data = self.send_payload(self.secure.encapsulate_secure_message(message))
-        data = self.secure.uncapsulate_secure_message(data)[0]
+        data = self.secure.uncapsulate_secure_message(data)
 
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
-            message = self.secure.decipher_message_from_user(
-                data['result']['msg'], False)
+            message, nounce = self.secure.decipher_message_from_user(
+                data['result']['msg'], self.cc_certificate)
             print(colored("Message: " + message, 'green'))
             print(colored("\nAll receipts: ", 'green'))
             for receipt in data['result']['receipts']:

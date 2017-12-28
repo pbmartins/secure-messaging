@@ -253,7 +253,11 @@ class X509Certificates:
             store = crypto.X509Store()
             store.set_flags(crypto.X509StoreFlags.CRL_CHECK_ALL)
             for subject in self.certs.keys():
-                store.add_cert(self.certs[subject]['cert'])
+                # TODO: fix add repeated certificates
+                try:
+                    store.add_cert(self.certs[subject]['cert'])
+                except:
+                    continue
 
             for subject in self.crls.keys():
                 store.add_crl(self.crls[subject]['crl'])

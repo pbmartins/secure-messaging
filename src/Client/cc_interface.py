@@ -104,7 +104,6 @@ def sign(payload, cc_pin=None):
                     break
 
             # Sign data
-            # TODO: Verify mechanism
             signature = priv_key.sign(
                 payload, mechanism=pkcs11.Mechanism.SHA256_RSA_PKCS
             )

@@ -214,7 +214,7 @@ class ClientSecure:
             self.user_certificates[user['id']] = {
                 'pub_key': deserialize_key(user['rsapubkey']),
                 'cc_pub_key': deserialize_key(user['ccpubkey']),
-                'certificate:': deserialize_certificate(user['cccertificate']),
+                'certificate': deserialize_certificate(user['cccertificate']),
                 'cipher_spec': get_cipher_suite(user['cipher_spec'])
             }
 
@@ -263,7 +263,8 @@ class ClientSecure:
         }
 
         # Sign payload
-        payload['signature'] = cc.sign(payload['payload'], self.cc_pin)
+        payload['signature'] = base64.b64encode(
+            cc.sign(json.dumps(payload['payload']).encode(), self.cc_pin)).decode()
 
         return base64.b64encode(json.dumps(payload).encode()).decode()
 
@@ -271,19 +272,21 @@ class ClientSecure:
         deciphered_message = None
 
         # Verify signature and certificate validity
-        peer_certificate = deserialize_certificate(peer_certificate)
         if not self.certificates.validate_cert(peer_certificate):
             logger.log(logging.DEBUG, "Invalid certificate; "
                                       "droping message")
             deciphered_message = {'error': 'Invalid server certificate'}
 
+        # Decode payload
+        payload = json.loads(base64.b64decode(payload))
+
         if deciphered_message is None:
             try:
                 rsa_verify(
                     peer_certificate.get_pubkey().to_cryptography_key(),
-                    base64.b64decode(payload['signature'].encode()),
-                    base64.b64decode(payload['payload'].encode()),
-                    self.cipher_suite['sha']['sign']['cc']['sha'],
+                    base64.b64decode(payload['signature']),
+                    json.dumps(payload['payload']).encode(),
+                    self.cipher_suite['rsa']['sign']['cc']['sha'],
                     self.cipher_suite['rsa']['sign']['cc']['padding']
                 )
             except InvalidSignature:
@@ -293,9 +296,6 @@ class ClientSecure:
 
         nounce = None
         if deciphered_message is None:
-            # Decode payload
-            payload = json.loads(base64.b64decode(payload))
-
             # Decipher AES key and IV
             aes_iv_key = rsa_decipher(
                 self.private_key,
@@ -318,8 +318,9 @@ class ClientSecure:
                 aes_key, self.cipher_suite['aes']['mode'], aes_iv)
 
             decryptor = aes_cipher.decryptor()
-            deciphered_message = decryptor.update(base64.b64decode(
-                payload['payload']['message'].encode())) + decryptor.finalize()
+            deciphered_message = decryptor.update(
+                base64.b64decode(payload['payload']['message'].encode()))\
+                                 + decryptor.finalize()
             deciphered_message = deciphered_message.decode()
 
         return deciphered_message, nounce
