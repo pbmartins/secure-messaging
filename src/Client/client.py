@@ -25,10 +25,10 @@ class Client:
     @staticmethod
     def choose_cipher_spec():
         suites = [
-            "EECDH-AES192_CFB-RSA1024_PCKS1v15-RSA2048_PSS_SHA256_PKCS1v15_SHA256-SHA256",
+            "EECDH-AES192_CFB-RSA1024_PKCS1v15-RSA2048_PSS_SHA256_PKCS1v15_SHA256-SHA256",
             "EECDH-AES192_CFB-RSA2048_OAEP-RSA2048_PSS_SHA256_PKCS1v15_SHA256-SHA256",
             "EECDH-AES256_CFB-RSA2048_OAEP-RSA2048_PSS_SHA384_PKCS1v15_SHA256-SHA384",
-            "EECDH-AES192_CTR-RSA1024_PCKS1v15-RSA2048_PSS_SHA256_PKCS1v15_SHA256-SHA256",
+            "EECDH-AES192_CTR-RSA1024_PKCS1v15-RSA2048_PSS_SHA256_PKCS1v15_SHA256-SHA256",
             "EECDH-AES192_CTR-RSA2048_OAEP-RSA2048_PSS_SHA256_PKCS1v15_SHA256-SHA256",
             "EECDH-AES256_CTR-RSA2048_OAEP-RSA2048_PSS_SHA384_PKCS1v15_SHA256-SHA384"
         ]
@@ -92,7 +92,7 @@ class Client:
         self.cc_certificate = get_pub_key_certificate()
         self.uuid = int(
             self.cc_certificate.digest('sha256').decode().replace(':', ''), 16)
-        print(colored('Login with ' + str(self.uuid) + '\n', 'blue'))
+        print(colored('Login with UUID ' + str(self.uuid) + '\n', 'blue'))
         self.password = getpass.getpass(colored("\nPassword: ", 'blue'))
 
         # Generate RSA keys and save them into file
@@ -329,7 +329,8 @@ class Client:
         payload['msg'] = self.secure.cipher_message_to_user(
             'message', payload['msg'], payload['dst'])
         payload['copy'] = self.secure.cipher_message_to_user(
-            'message', payload['copy'], payload['src'], self.secure.public_key)
+            'message', payload['copy'], payload['src'], self.secure.public_key,
+            self.secure.user_certificates[int(payload['dst'])]['cipher_spec'])
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
