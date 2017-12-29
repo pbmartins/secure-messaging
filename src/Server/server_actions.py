@@ -204,7 +204,6 @@ class ServerActions:
         fromId = int(data["id"])
         msg = str(data['msg'])
         receipt = str(data['receipt'])
-        message_nounce = data['nounce']
 
         if not self.registry.messageWasRed(str(fromId), msg):
             logger.log(logging.ERROR,
@@ -212,8 +211,6 @@ class ServerActions:
                     data))
             client.sendResult({"error": "wrong parameters"}, nounce)
             return
-
-        # TODO: Compare nounces
 
         self.registry.storeReceipt(fromId, msg, receipt)
 
@@ -270,7 +267,8 @@ class ServerActions:
     def processInit(self, data, client, nounce):
         logger.log(logging.DEBUG, "%s" % json.dumps(data))
 
-        client.sendResult({"message": ""}, nounce)
+        me = self.registry.getUser(data['uuid'])
+        client.sendResult({"result": me.id}, nounce)
 
     def processError(self, data, client, nounce):
         logger.log(logging.DEBUG, "%s" % json.dumps(data))

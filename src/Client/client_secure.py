@@ -8,6 +8,7 @@ import os
 import base64
 import json
 import logging
+import time
 
 
 class ClientSecure:
@@ -220,7 +221,7 @@ class ClientSecure:
 
     def cipher_message_to_user(self, payload_type, message,
                                user_id, peer_rsa_pubkey=None,
-                               cipher_suite=None):
+                               cipher_suite=None, nounce=None):
 
         if cipher_suite is None:
             cipher_suite = self.cipher_suite
@@ -237,22 +238,16 @@ class ClientSecure:
         if peer_rsa_pubkey is None:
             peer_rsa_pubkey = self.user_certificates[user_id]['pub_key']
 
-        # Cipher AES key and IV
-        aes_iv_key = aes_iv + aes_key
-        ciphered_aes_iv_key = rsa_cipher(
-            peer_rsa_pubkey,
-            aes_iv_key,
-            cipher_suite['sha']['size'],
-            cipher_suite['rsa']['cipher']['padding']
-        )
-
         # Generate nounce to verify message readings
-        nounce = get_nounce(16, message.encode(),
-                            cipher_suite['sha']['size'])
+        if nounce is None:
+            nounce = get_nounce(16, message.encode(),
+                                cipher_suite['sha']['size'])
 
-        ciphered_nounce = rsa_cipher(
+        # Cipher nounce and AES key and IV
+        nounce_aes_iv_key = aes_iv + aes_key + nounce
+        ciphered_nounce_aes_iv_key = rsa_cipher(
             peer_rsa_pubkey,
-            nounce,
+            nounce_aes_iv_key,
             cipher_suite['sha']['size'],
             cipher_suite['rsa']['cipher']['padding']
         )
@@ -260,8 +255,8 @@ class ClientSecure:
         payload = {
             'payload': {
                 payload_type: base64.b64encode(ciphered_message).decode(),
-                'nounce': base64.b64encode(ciphered_nounce).decode(),
-                'key_iv': base64.b64encode(ciphered_aes_iv_key).decode()
+                'nounce_key_iv':
+                    base64.b64encode(ciphered_nounce_aes_iv_key).decode()
             },
             'signature': None,
             'cipher_spec': cipher_suite
@@ -271,15 +266,19 @@ class ClientSecure:
         payload['signature'] = base64.b64encode(
             cc.sign(json.dumps(payload['payload']).encode(), self.cc_pin)).decode()
 
-        return base64.b64encode(json.dumps(payload).encode()).decode()
+        return base64.b64encode(json.dumps(payload).encode()).decode(), nounce
 
-    def decipher_message_from_user(self, payload, peer_certificate):
+    def decipher_message_from_user(self, payload, peer_certificate=None):
         deciphered_message = None
+
+        if peer_certificate is None:
+            peer_certificate = self.cc_cert
+
         # Verify signature and certificate validity
         if not self.certificates.validate_cert(peer_certificate):
             logger.log(logging.DEBUG, "Invalid certificate; "
                                       "droping message")
-            deciphered_message = {'error': 'Invalid server certificate'}
+            deciphered_message = {'error': 'Invalid peer certificate'}
 
         # Decode payload
         payload = json.loads(base64.b64decode(payload))
@@ -302,22 +301,17 @@ class ClientSecure:
 
         nounce = None
         if deciphered_message is None:
-            # Decipher AES key and IV
-            aes_iv_key = rsa_decipher(
+            # Decipher nounce and AES key and IV
+            nounce_aes_iv_key = rsa_decipher(
                 self.private_key,
-                base64.b64decode(payload['payload']['key_iv'].encode()),
+                base64.b64decode(payload['payload']['nounce_key_iv'].encode()),
                 cipher_suite['sha']['size'],
                 cipher_suite['rsa']['cipher']['padding']
             )
-            aes_iv = aes_iv_key[:16]
-            aes_key = aes_iv_key[16:]
 
-            nounce = rsa_decipher(
-                self.private_key,
-                base64.b64decode(payload['payload']['nounce'].encode()),
-                cipher_suite['sha']['size'],
-                cipher_suite['rsa']['cipher']['padding']
-            )
+            aes_iv = nounce_aes_iv_key[0:16]
+            aes_key = nounce_aes_iv_key[16:16+cipher_suite['aes']['key_size']]
+            nounce = nounce_aes_iv_key[16+cipher_suite['aes']['key_size']:]
 
             # Decipher payload
             aes_cipher, aes_iv = generate_aes_cipher(
@@ -327,6 +321,142 @@ class ClientSecure:
             deciphered_message = decryptor.update(
                 base64.b64decode(payload['payload']['message'].encode()))\
                                  + decryptor.finalize()
-            deciphered_message = deciphered_message.decode()
 
-        return deciphered_message, nounce
+            try:
+                deciphered_message = deciphered_message.decode()
+            except Exception as e:
+                pass
+
+        return deciphered_message, nounce, cipher_suite
+
+    def generate_secure_receipt(self, message, nounce,
+                                 peer_rsa_pubkey, cipher_suite):
+        # Generate receipt from cleartext message and timestamp
+        message_digest = base64.b64encode(digest_payload(
+            message, cipher_suite['sha']['size'])).decode()
+
+        receipt = {
+            'payload': {
+                'nounce': base64.b64encode(nounce).decode(),
+                'hashed_timestamp_message': base64.b64encode(digest_payload(
+                    message_digest + str(time.time()),
+                    cipher_suite['sha']['size'])).decode()
+            },
+            'signature': None
+        }
+
+        # Sign receipt message
+        receipt['signature'] = base64.b64encode(
+            cc.sign(json.dumps(receipt['payload']).encode(), self.cc_pin)).decode()
+
+        # Cipher receipt
+        aes_key = os.urandom(cipher_suite['aes']['key_size'])
+        aes_cipher, aes_iv = generate_aes_cipher(
+            aes_key, cipher_suite['aes']['mode'])
+
+        encryptor = aes_cipher.encryptor()
+        ciphered_receipt = encryptor.update(json.dumps(receipt).encode()) + \
+                           encryptor.finalize()
+
+        # Cipher nounce and AES key and IV
+        nounce_aes_iv_key = aes_iv + aes_key + nounce
+        ciphered_nounce_aes_iv_key = rsa_cipher(
+            peer_rsa_pubkey,
+            nounce_aes_iv_key,
+            cipher_suite['sha']['size'],
+            cipher_suite['rsa']['cipher']['padding']
+        )
+
+        payload = {
+            'payload': {
+                'receipt': base64.b64encode(ciphered_receipt).decode(),
+                'nounce_key_iv':
+                    base64.b64encode(ciphered_nounce_aes_iv_key).decode()
+            },
+            'signature': None,
+            'cipher_spec': cipher_suite
+        }
+
+        # Sign payload
+        payload['signature'] = base64.b64encode(
+            cc.sign(json.dumps(payload['payload']).encode(),
+                    self.cc_pin)).decode()
+
+        return base64.b64encode(json.dumps(payload).encode()).decode()
+
+    def decipher_secure_receipt(self, payload):
+        payload = json.loads(base64.b64decode(payload.encode()))
+
+        # Decipher AES key and IV
+        nounce_aes_iv_key = rsa_decipher(
+            self.private_key,
+            base64.b64decode(payload['payload']['nounce_key_iv'].encode()),
+            self.cipher_suite['sha']['size'],
+            self.cipher_suite['rsa']['cipher']['padding']
+        )
+        aes_iv = nounce_aes_iv_key[0:16]
+        aes_key = nounce_aes_iv_key[16:16 + self.cipher_suite['aes']['key_size']]
+        nounce = nounce_aes_iv_key[16 + self.cipher_suite['aes']['key_size']:]
+
+        # Decipher payload
+        aes_cipher, aes_iv = generate_aes_cipher(
+            aes_key, self.cipher_suite['aes']['mode'], aes_iv)
+
+        decryptor = aes_cipher.decryptor()
+        deciphered_receipt = decryptor.update(
+            base64.b64decode(payload['payload']['receipt'].encode())) \
+                             + decryptor.finalize()
+        deciphered_receipt = json.loads(deciphered_receipt.decode())
+
+        return deciphered_receipt, nounce
+
+    def verify_secure_receipts(self, result, peer_certificate):
+        # Decipher original sent message
+        deciphered_message, nounce, cipher_suite = \
+            self.decipher_message_from_user(result['msg'])
+
+        to_rtn = None if 'error' not in deciphered_message \
+            else deciphered_message
+
+        # Validate receipts sender certificate
+        # Verify certificate validity
+        if not self.certificates.validate_cert(peer_certificate):
+            logger.log(logging.DEBUG, "Invalid certificate; "
+                                      "droping message")
+            to_rtn = {'error': 'Invalid peer certificate'}
+
+        if to_rtn is None:
+            to_rtn = {'msg': deciphered_message, 'receipts': []}
+            for r in result['receipts']:
+                # Decipher receipt
+                deciphered_receipt, receipt_nounce = \
+                    self.decipher_secure_receipt(r['receipt'])
+
+                receipt = {
+                    'date': r['date'],
+                    'id': r['id'],
+                    'receipt': None
+                }
+
+                # Validate receipt signature
+                try:
+                    rsa_verify(
+                        peer_certificate.get_pubkey().to_cryptography_key(),
+                        base64.b64decode(deciphered_receipt['signature']),
+                        json.dumps(deciphered_receipt['payload']).encode(),
+                        self.cipher_suite['rsa']['sign']['cc']['sha'],
+                        self.cipher_suite['rsa']['sign']['cc']['padding']
+                    )
+                except InvalidSignature:
+                    logger.log(
+                        logging.DEBUG, "Invalid receipt signature: %r on %r"
+                                       % (r['id'], r['data']))
+                    receipt['receipt'] = 'Invalid receipt signature'
+
+                # Validate nounce - actually proves that the message was read
+                receipt['receipt'] = deciphered_receipt['payload']['hashed_timestamp_message'] \
+                    if nounce == receipt_nounce else 'Invalid nounce'
+
+                to_rtn['receipts'] += [receipt]
+
+        return to_rtn

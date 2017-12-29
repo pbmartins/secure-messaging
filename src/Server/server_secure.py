@@ -40,7 +40,7 @@ class ServerSecure:
         self.peer_salt = base64.b64decode(payload['secdata']['salt'].encode())
         self.number_of_hash_derivations = payload['secdata']['index']
 
-        return {'type': 'init'}, payload['nounce']
+        return {'type': 'init', 'uuid': self.uuid}, payload['nounce']
 
     def encapsulate_secure_message(self, payload, nounce):
         # Values used in key exchange

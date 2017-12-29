@@ -64,10 +64,10 @@ def generate_rsa_keypair(size):
     return private_key, private_key.public_key()
 
 
-def generate_aes_cipher(key, mode, iv=None):
+def generate_aes_cipher(key, mode, iv_in=None):
     assert len(key) * 8 in [192, 256]
 
-    iv = os.urandom(16) if iv is None else iv
+    iv = os.urandom(16) if iv_in is None else iv_in
     cipher_mode = get_aes_mode(mode, iv)
     cipher = Cipher(algorithms.AES(key), cipher_mode, backend=default_backend())
 
@@ -211,6 +211,7 @@ def rsa_cipher(public_key, payload, hash_algorithm, padding_algorithm):
 def rsa_decipher(private_key, ciphertext, hash_algorithm, padding_algorithm):
     h = get_hash_algorithm(hash_algorithm)
     p = get_padding_algorithm(padding_algorithm, h)
+    # TODO: Error when deciphering messages not destinated to the user
     payload = private_key.decrypt(ciphertext, p)
     return payload
 

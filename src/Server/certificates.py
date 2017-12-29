@@ -6,7 +6,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.x509 import oid, extensions
 from datetime import datetime
-from subprocess import check_output
+from subprocess import check_output, DEVNULL
 import wget
 import os
 import shutil
@@ -69,9 +69,11 @@ class X509Certificates:
     @classmethod
     def get_ocsp_response(cls, cert_path, issuer_path, ocsp_url):
         try:
-            response = check_output(['openssl', 'ocsp', '-issuer', issuer_path,
-                                     '-cert', cert_path, '-url', ocsp_url,
-                                     '-CAfile', lib.CERTS_DIR + 'ca'])
+            response = check_output(
+                ['openssl', 'ocsp', '-issuer', issuer_path, '-cert', cert_path,
+                 '-url', ocsp_url, '-CAfile', lib.CERTS_DIR + 'ca'],
+                stderr=DEVNULL
+            )
 
             for line in response.decode().split('\n'):
                 if cert_path in line:
@@ -126,7 +128,8 @@ class X509Certificates:
                     f.write(
                         crypto.dump_certificate(crypto.FILETYPE_PEM, cc_cert))
 
-            self.certs[user['id']] = {'cert': cc_cert, 'path': path}
+            self.certs[cc_cert.get_subject().commonName.replace(' ', '_')] = \
+                {'cert': cc_cert, 'path': path}
 
     def get_user_cert(self, uuid, cert):
         if uuid not in self.certs:
@@ -182,7 +185,7 @@ class X509Certificates:
             elif cert.get_subject().commonName == 'ServerCA':
                 self.ca_cert = cert
             elif cert.get_subject().commonName not in self.certs.keys():
-                self.certs[cert.get_subject().commonName] = \
+                self.certs[cert.get_subject().commonName.replace(' ', '_')] = \
                     {'cert': cert, 'path': path}
 
     def import_keys(self):
@@ -194,7 +197,7 @@ class X509Certificates:
 
     def check_expiration_or_revoked(self, cert_entry):
         cert = cert_entry['cert']
-        issuer = cert.get_issuer().commonName
+        issuer = cert.get_issuer().commonName.replace(' ', '_')
 
         # Check time validity
         if cert.has_expired():
@@ -265,8 +268,8 @@ class X509Certificates:
 
         # Check if all certificates in the chain are valid
         while True:
-            subject = c['cert'].get_subject().commonName
-            issuer = c['cert'].get_issuer().commonName
+            subject = c['cert'].get_subject().commonName.replace(' ', '_')
+            issuer = c['cert'].get_issuer().commonName.replace(' ', '_')
             if issuer not in self.certs.keys():
                 logger.log(logging.DEBUG, "Invalid certificate: %r"
                            % cert.get_subject().commonName)
