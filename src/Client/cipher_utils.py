@@ -211,8 +211,10 @@ def rsa_cipher(public_key, payload, hash_algorithm, padding_algorithm):
 def rsa_decipher(private_key, ciphertext, hash_algorithm, padding_algorithm):
     h = get_hash_algorithm(hash_algorithm)
     p = get_padding_algorithm(padding_algorithm, h)
-    # TODO: Error when deciphering messages not destinated to the user
-    payload = private_key.decrypt(ciphertext, p)
+    try:
+        payload = private_key.decrypt(ciphertext, p)
+    except ValueError:
+        payload = {'error': 'Cannot decipher ciphertext'}
     return payload
 
 

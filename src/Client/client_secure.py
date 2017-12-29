@@ -309,6 +309,11 @@ class ClientSecure:
                 cipher_suite['rsa']['cipher']['padding']
             )
 
+            # If the user can't decrypt, return error message
+            if isinstance(nounce_aes_iv_key, dict) \
+                    and 'error' in nounce_aes_iv_key:
+                return nounce_aes_iv_key, nounce, cipher_suite
+
             aes_iv = nounce_aes_iv_key[0:16]
             aes_key = nounce_aes_iv_key[16:16+cipher_suite['aes']['key_size']]
             nounce = nounce_aes_iv_key[16+cipher_suite['aes']['key_size']:]
@@ -321,11 +326,7 @@ class ClientSecure:
             deciphered_message = decryptor.update(
                 base64.b64decode(payload['payload']['message'].encode()))\
                                  + decryptor.finalize()
-
-            try:
-                deciphered_message = deciphered_message.decode()
-            except Exception as e:
-                pass
+            deciphered_message = deciphered_message.decode()
 
         return deciphered_message, nounce, cipher_suite
 
@@ -394,6 +395,12 @@ class ClientSecure:
             self.cipher_suite['sha']['size'],
             self.cipher_suite['rsa']['cipher']['padding']
         )
+
+        # If the user can't decrypt, return error message
+        if isinstance(nounce_aes_iv_key, dict) \
+                and 'error' in nounce_aes_iv_key:
+            return nounce_aes_iv_key, None
+
         aes_iv = nounce_aes_iv_key[0:16]
         aes_key = nounce_aes_iv_key[16:16 + self.cipher_suite['aes']['key_size']]
         nounce = nounce_aes_iv_key[16 + self.cipher_suite['aes']['key_size']:]
@@ -415,8 +422,8 @@ class ClientSecure:
         deciphered_message, nounce, cipher_suite = \
             self.decipher_message_from_user(result['msg'])
 
-        to_rtn = None if 'error' not in deciphered_message \
-            else deciphered_message
+        to_rtn = {'error': 'Cannot decipher message nor receipts'} \
+            if 'error' in deciphered_message else None
 
         # Validate receipts sender certificate
         # Verify certificate validity
@@ -438,24 +445,28 @@ class ClientSecure:
                     'receipt': None
                 }
 
-                # Validate receipt signature
-                try:
-                    rsa_verify(
-                        peer_certificate.get_pubkey().to_cryptography_key(),
-                        base64.b64decode(deciphered_receipt['signature']),
-                        json.dumps(deciphered_receipt['payload']).encode(),
-                        self.cipher_suite['rsa']['sign']['cc']['sha'],
-                        self.cipher_suite['rsa']['sign']['cc']['padding']
-                    )
-                except InvalidSignature:
-                    logger.log(
-                        logging.DEBUG, "Invalid receipt signature: %r on %r"
-                                       % (r['id'], r['data']))
-                    receipt['receipt'] = 'Invalid receipt signature'
+                if 'error' in deciphered_receipt:
+                    receipt['receipt'] = deciphered_receipt['error']
+                else:
+                    # Validate receipt signature
+                    try:
+                        rsa_verify(
+                            peer_certificate.get_pubkey().to_cryptography_key(),
+                            base64.b64decode(deciphered_receipt['signature']),
+                            json.dumps(deciphered_receipt['payload']).encode(),
+                            self.cipher_suite['rsa']['sign']['cc']['sha'],
+                            self.cipher_suite['rsa']['sign']['cc']['padding']
+                        )
+                    except InvalidSignature:
+                        logger.log(
+                            logging.DEBUG, "Invalid receipt signature: %r on %r"
+                                           % (r['id'], r['data']))
+                        receipt['receipt'] = 'Invalid receipt signature'
 
-                # Validate nounce - actually proves that the message was read
-                receipt['receipt'] = deciphered_receipt['payload']['hashed_timestamp_message'] \
-                    if nounce == receipt_nounce else 'Invalid nounce'
+                    # Validate nounce, actually proves that the message was read
+                    receipt['receipt'] = \
+                        deciphered_receipt['payload']['hashed_timestamp_message'] \
+                        if nounce == receipt_nounce else 'Invalid nounce'
 
                 to_rtn['receipts'] += [receipt]
 

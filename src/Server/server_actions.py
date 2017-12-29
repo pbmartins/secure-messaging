@@ -268,7 +268,8 @@ class ServerActions:
         logger.log(logging.DEBUG, "%s" % json.dumps(data))
 
         me = self.registry.getUser(data['uuid'])
-        client.sendResult({"result": me.id}, nounce)
+        user_id = me.id if me is not None else ''
+        client.sendResult({"result": user_id}, nounce)
 
     def processError(self, data, client, nounce):
         logger.log(logging.DEBUG, "%s" % json.dumps(data))

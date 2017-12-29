@@ -320,6 +320,9 @@ class Client:
             if not len(line):
                 break
 
+        payload['msg'] = base64.b64encode(
+            payload['msg'].strip().encode('utf-8')).decode()
+
         payload['copy'] = payload['msg']
 
         print(colored('\nSending Message ...\n', 'yellow'))
@@ -392,7 +395,9 @@ class Client:
                 print(colored("ERROR: " + message['error'], 'red'))
                 return
 
-            print(colored("Message: " + message, 'green'))
+            message = base64.b64decode(message.encode()).decode('utf-8')
+
+            print(colored("Message:\n" + message, 'green'))
 
             print(colored('\nSending receipt ...\n', 'yellow'))
 
@@ -458,6 +463,7 @@ class Client:
             if not len(data['result']['receipts']):
                 print(colored("Message ID: " + message['msg'], 'green'))
                 print(colored("\nNo receipts.", 'green'))
+                return
 
             # Get receiver public key and certificate
             dest_id = int(data['result']['receipts'][0]['id'])
@@ -468,6 +474,10 @@ class Client:
                 data['result'],
                 self.secure.user_certificates[dest_id]['certificate']
             )
+
+            if 'error' in info:
+                print(colored("ERROR: " + info['error'], 'red'))
+                return
 
             print(colored("Message: " + info['msg'], 'green'))
             print(colored("\nAll receipts: ", 'green'))
