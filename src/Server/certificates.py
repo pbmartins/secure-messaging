@@ -30,6 +30,17 @@ class X509Certificates:
         return crl, crl_download
 
     @classmethod
+    def get_cert_id(cls, cert, subject_notissuer=True):
+        cert_id = cert.get_subject().serialNumber \
+            if subject_notissuer else cert.get_issuer().serialNumber
+
+        if cert_id is None:
+            cert_id = cert.get_subject().commonName \
+                if subject_notissuer else cert.get_issuer().commonName
+
+        return cert_id
+
+    @classmethod
     def get_extension(cls, cert, short_name):
         for i in range(0, cert.get_extension_count()):
             extension = cert.get_extension(i)
@@ -118,18 +129,17 @@ class X509Certificates:
             user = users[uid]
             cc_cert = deserialize_certificate(
                 user['description']['secdata']['cccertificate'])
+            cert_id = X509Certificates.get_cert_id(cc_cert)
 
             # Save it to file if it doesn't exist
             # to be able to verify it via OCSP
-            path = lib.USER_CERTS_DIR + \
-                   cc_cert.get_subject().commonName.replace(' ', '_')
+            path = lib.USER_CERTS_DIR + cert_id
             if not os.path.isfile(path):
                 with open(path, 'wb') as f:
                     f.write(
                         crypto.dump_certificate(crypto.FILETYPE_PEM, cc_cert))
 
-            self.certs[cc_cert.get_subject().commonName.replace(' ', '_')] = \
-                {'cert': cc_cert, 'path': path}
+            self.certs[cert_id] = {'cert': cc_cert, 'path': path}
 
     def get_user_cert(self, uuid, cert):
         if uuid not in self.certs:
@@ -180,13 +190,13 @@ class X509Certificates:
                     f.close()
                     continue
 
-            if cert.get_subject().commonName == 'SecurityServer':
+            cert_id = X509Certificates.get_cert_id(cert)
+            if cert_id == 'SecurityServer':
                 self.cert = cert
-            elif cert.get_subject().commonName == 'ServerCA':
+            elif cert_id == 'ServerCA':
                 self.ca_cert = cert
-            elif cert.get_subject().commonName not in self.certs.keys():
-                self.certs[cert.get_subject().commonName.replace(' ', '_')] = \
-                    {'cert': cert, 'path': path}
+            elif cert_id not in self.certs.keys():
+                self.certs[cert_id] = {'cert': cert, 'path': path}
 
     def import_keys(self):
         f = open(lib.XCA_DIR + 'SecurityServer.pem', 'rb')
@@ -197,7 +207,7 @@ class X509Certificates:
 
     def check_expiration_or_revoked(self, cert_entry):
         cert = cert_entry['cert']
-        issuer = cert.get_issuer().commonName.replace(' ', '_')
+        issuer = X509Certificates.get_cert_id(cert, False)
 
         # Check time validity
         if cert.has_expired():
@@ -248,11 +258,11 @@ class X509Certificates:
         return cert.get_serial_number() not in revoked_serials
 
     def validate_cert(self, cert):
+        cert_id = X509Certificates.get_cert_id(cert)
         logger.log(logging.DEBUG, "Verifying certificate validity: %r"
-                   % cert.get_subject().commonName)
+                   % cert_id)
 
-        c = self.get_user_cert(
-            cert.get_subject().commonName.replace(' ', '_'), cert)
+        c = self.get_user_cert(cert_id, cert)
 
         # Check if it has extension KeyUsage with digital signature
         try:
@@ -260,19 +270,17 @@ class X509Certificates:
                 oid.ExtensionOID.KEY_USAGE)
 
             if not ext.value.digital_signature:
-                logger.log(logging.DEBUG, "Invalid certificate: %r"
-                           % cert.get_subject().commonName)
+                logger.log(logging.DEBUG, "Invalid certificate: %r" % cert_id)
                 return False
         except extensions.ExtensionNotFound:
             return False
 
         # Check if all certificates in the chain are valid
         while True:
-            subject = c['cert'].get_subject().commonName.replace(' ', '_')
-            issuer = c['cert'].get_issuer().commonName.replace(' ', '_')
+            subject = X509Certificates.get_cert_id(c['cert'])
+            issuer = X509Certificates.get_cert_id(c['cert'], False)
             if issuer not in self.certs.keys():
-                logger.log(logging.DEBUG, "Invalid certificate: %r"
-                           % cert.get_subject().commonName)
+                logger.log(logging.DEBUG, "Invalid certificate: %r" % cert_id)
                 return False
 
             # Self-signed -> stop chain
@@ -281,8 +289,7 @@ class X509Certificates:
 
             # Check validity
             if not self.check_expiration_or_revoked(c):
-                logger.log(logging.DEBUG, "Invalid certificate: %r"
-                           % cert.get_subject().commonName)
+                logger.log(logging.DEBUG, "Invalid certificate: %r" % cert_id)
                 return False
 
             c = self.certs[issuer]
@@ -309,11 +316,9 @@ class X509Certificates:
             store_ctx.verify_certificate()
 
             # If it gets here, it means it's valid
-            logger.log(logging.DEBUG, "Valid certificate: %r"
-                       % cert.get_subject().commonName)
+            logger.log(logging.DEBUG, "Valid certificate: %r" % cert_id)
             return True
 
         except Exception as e:
-            logger.log(logging.DEBUG, "Invalid certificate: %r"
-                       % cert.get_subject().commonName)
+            logger.log(logging.DEBUG, "Invalid certificate: %r" % cert_id)
             return False

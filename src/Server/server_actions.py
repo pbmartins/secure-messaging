@@ -151,6 +151,15 @@ class ServerActions:
             client.sendResult({"error": "wrong parameters"}, nounce)
             return
 
+        if self.registry.getUser(client.secure.uuid).id != srcId:
+            logger.log(
+                logging.ERROR,
+                "Source id different from client id for \"send\" message: "
+                + json.dumps(data)
+            )
+            client.sendResult({"error": "wrong parameters"}, nounce)
+            return
+
         if not self.registry.userExists(dstId):
             logger.log(logging.ERROR,
                 "Unknown destination id for \"send\" message: " + json.dumps(
@@ -204,6 +213,14 @@ class ServerActions:
         fromId = int(data["id"])
         msg = str(data['msg'])
         receipt = str(data['receipt'])
+
+        if self.registry.getUser(client.secure.uuid).id != fromId:
+            logger.log(
+                logging.ERROR,
+                "Source id different from client id for \"receipt\" request: "
+                + json.dumps(data)
+            )
+            return
 
         if not self.registry.messageWasRed(str(fromId), msg):
             logger.log(logging.ERROR,

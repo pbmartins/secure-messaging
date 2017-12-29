@@ -403,11 +403,10 @@ class Client:
 
             # Send receipt
             self.receipt_message(payload['msg'], message, nounce,
-                                 int(payload['id']), int(data['result'][0]),
-                                 cipher_suite)
+                                 int(data['result'][0]), cipher_suite)
 
     def receipt_message(self, message_id, message, nounce,
-                        receipt_user_id, sender_id, cipher_suite):
+                        sender_id, cipher_suite):
 
         # Get receiver public key and certificate
         if not self.get_resources([sender_id]):
@@ -417,7 +416,7 @@ class Client:
         # Create payload - not necessary to generate nounce
         payload = {
             'type': 'receipt',
-            'id': receipt_user_id,
+            'id': self.user_id,
             'msg': message_id,
             'receipt': self.secure.generate_secure_receipt(
                 message,
@@ -431,7 +430,9 @@ class Client:
         self.send_payload(self.secure.encapsulate_secure_message(payload),
                           response=False)
 
-        print(colored('\nReceipt sent successfully!\n', 'green'))
+        print(colored('\nReceipt sent successfully!', 'green'))
+        print(colored('\nWARNING: The server will not reply to this message, '
+                      'so the receipt may not be accepted.\n', 'yellow'))
 
     def message_status(self):
         message = {

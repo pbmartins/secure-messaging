@@ -108,7 +108,7 @@ class Server:
         try:
             data = s.recv(BUFSIZE).decode('utf-8')
             logger.log(logging.DEBUG,
-                "Received data from %s. Message:\n%r" % (client, data))
+                       "Received data from %s. Message:\n%r" % (client, data))
         except:
             logging.exception("flushin: recv(%s)" % client)
             self.delClient(s)
@@ -119,11 +119,13 @@ class Server:
                     sec_req = json.loads(s_req)
 
                     # Uncapsulate payload based on its secure type
-                    req, nounce = client.secure.uncapsulate_insecure_message(sec_req) \
+                    req, nounce = \
+                        client.secure.uncapsulate_insecure_message(sec_req) \
                         if sec_req['type'] == 'insecure' \
                         else client.secure.uncapsulate_secure_message(sec_req)
 
-                    Server.server_actions.handleRequest(s, req, self.clients[s], nounce)
+                    Server.server_actions.handleRequest(
+                        s, req, self.clients[s], nounce)
             else:
                 self.delClient(s)
 
