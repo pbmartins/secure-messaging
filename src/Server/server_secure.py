@@ -1,6 +1,5 @@
-from src.Client.cipher_utils import *
-from src.Server import certificates, server
-from src.Server.log import logger
+from cipher_utils import *
+from log import logger
 from cryptography.exceptions import *
 from OpenSSL import crypto
 import os

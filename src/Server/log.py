@@ -11,6 +11,7 @@ class ServerLogger:
         )
         self.logger = logging.getLogger('ServerLogger')
         self.logger.setLevel(logging.DEBUG)
+        self.logger.propagate = True
 
     def log(self, level, message):
         func = inspect.currentframe().f_back.f_code

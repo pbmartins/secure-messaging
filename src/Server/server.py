@@ -6,16 +6,16 @@
 # vim setings:
 # :set expandtab ts=4
 
+from log import logger
+from server_client import *
+from server_actions import *
+from cipher_utils import *
 from socket import *
 from select import *
 import json
 import sys
 import time
 import logging
-from src.Server.log import logger
-from src.Server.server_client import *
-from src.Server.server_actions import *
-from src.Client.cipher_utils import *
 
 # Server address
 HOST = ""  # All available interfaces

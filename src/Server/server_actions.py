@@ -1,8 +1,8 @@
 import logging
-from src.Server.log import logger
-from src.Server.server_registry import *
-from src.Server.server_client import *
-from src.Server.certificates import *
+from log import logger
+from server_registry import *
+from server_client import *
+from certificates import *
 import json
 import re
 

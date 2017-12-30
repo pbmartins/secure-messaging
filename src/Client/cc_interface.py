@@ -1,10 +1,5 @@
 from pkcs11.constants import Attribute
 from pkcs11.constants import ObjectClass
-from cryptography import x509
-from cryptography.x509.oid import NameOID
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.serialization import Encoding
-from cryptography.hazmat.primitives import hashes
 from OpenSSL import crypto
 from termcolor import colored
 import pkcs11
@@ -46,7 +41,8 @@ def get_public_key():
     try:
         # Open a session on our token
         with token.open() as session:
-            pub_keys = session.get_objects({Attribute.CLASS: ObjectClass.PUBLIC_KEY})
+            pub_keys = session.get_objects(
+                {Attribute.CLASS: ObjectClass.PUBLIC_KEY})
 
             pub_key = None
             for key in pub_keys:
@@ -69,7 +65,8 @@ def get_pub_key_certificate():
     try:
         with token.open() as session:
             # Get Citizen certificate
-            cc_certs = session.get_objects({Attribute.CLASS: ObjectClass.CERTIFICATE})
+            cc_certs = session.get_objects(
+                {Attribute.CLASS: ObjectClass.CERTIFICATE})
 
             for cc_cert in cc_certs:
                 # Convert from DER-encoded value
@@ -94,8 +91,9 @@ def sign(payload, cc_pin=None):
     try:
         # Open a session on our token
         with token.open(user_pin=pin) as session:
-            # Generate an RSA keypair in this session
-            priv_keys = session.get_objects({Attribute.CLASS: ObjectClass.PRIVATE_KEY})
+            # Get an RSA keypair in this session
+            priv_keys = session.get_objects(
+                {Attribute.CLASS: ObjectClass.PRIVATE_KEY})
 
             priv_key = None
             for key in priv_keys:

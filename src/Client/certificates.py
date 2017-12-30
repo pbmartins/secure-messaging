@@ -1,5 +1,5 @@
-from src.Client.log import logger
-from src.Client.lib import *
+from log import logger
+from lib import *
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509 import oid, extensions
@@ -98,9 +98,13 @@ class X509Certificates:
             os.makedirs(CERTS_DIR)
             # TODO: script to download them
 
-        if not os.path.exists(USER_CERTS_DIR):
-            os.makedirs(USER_CERTS_DIR)
+        # Reset user certs dir
+        if os.path.exists(USER_CERTS_DIR):
+            shutil.rmtree(USER_CERTS_DIR)
 
+        os.makedirs(USER_CERTS_DIR)
+
+        # Reset CRLs dir
         if os.path.exists(CRLS_DIR):
             shutil.rmtree(CRLS_DIR)
 

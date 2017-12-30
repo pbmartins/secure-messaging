@@ -1,9 +1,9 @@
+from cc_interface import *
+from cipher_utils import *
+from client_secure import *
+from log import logger
+from lib import *
 from socket import *
-from src.Client.cc_interface import *
-from src.Client.cipher_utils import *
-from src.Client.client_secure import *
-from src.Client.log import logger
-from src.Client.lib import *
 from termcolor import colored
 import json
 import getpass
@@ -205,6 +205,7 @@ class Client:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
             self.user_id = data['result']
+            print(colored("User account succesfully created.", 'green'))
 
             logger.log(logging.DEBUG, "User account created")
 
@@ -333,7 +334,7 @@ class Client:
 
         # Cipher sender and receiver message
         payload['msg'], nounce = self.secure.cipher_message_to_user(
-            msg, self.secure.user_certificates[payload['dst']]['pub_key'])
+            msg, self.secure.user_resources[payload['dst']]['pub_key'])
 
         payload['copy'], nounce_none = \
             self.secure.cipher_message_to_user(msg, None, nounce)
@@ -388,7 +389,7 @@ class Client:
             message, nounce, cipher_suite = \
                 self.secure.decipher_message_from_user(
                     data['result'][1],
-                    self.secure.user_certificates[sender_id]['certificate']
+                    self.secure.user_resources[sender_id]['certificate']
                 )
 
             if 'error' in message:
@@ -421,7 +422,7 @@ class Client:
             'receipt': self.secure.generate_secure_receipt(
                 message,
                 nounce,
-                self.secure.user_certificates[sender_id]['pub_key'],
+                self.secure.user_resources[sender_id]['pub_key'],
                 cipher_suite
             ),
             'nounce': None
@@ -467,7 +468,7 @@ class Client:
                 if not self.get_resources([dest_id], data['resources']):
                     return
 
-                peer_cert = self.secure.user_certificates[dest_id]['certificate']
+                peer_cert = self.secure.user_resources[dest_id]['certificate']
             else:
                 peer_cert = None
 

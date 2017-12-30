@@ -1,7 +1,7 @@
-from src.Client.cipher_utils import *
-from src.Client import cc_interface as cc
-from src.Client import certificates
-from src.Client.log import logger
+from log import logger
+from cipher_utils import *
+import cc_interface as cc
+import certificates
 from cryptography.exceptions import *
 import os
 import base64
@@ -12,7 +12,8 @@ import time
 
 class ClientSecure:
 
-    def __init__(self, uuid, private_key, public_key, cipher_spec=None, cipher_suite=None, pin=None):
+    def __init__(self, uuid, private_key, public_key, cipher_spec=None,
+                 cipher_suite=None, pin=None):
         self.uuid = uuid
         self.cipher_spec = cipher_spec
         self.cipher_suite = cipher_suite
@@ -31,7 +32,7 @@ class ClientSecure:
 
         self.cc_pin = pin
 
-        self.user_certificates = {}
+        self.user_resources = {}
 
     def encapsulate_insecure_message(self):
         self.priv_value, self.pub_value = generate_ecdh_keypair()
@@ -194,7 +195,7 @@ class ClientSecure:
     def encapsulate_resource_message(self, ids):
         # Check if already exists user public infos
         for user in ids:
-            if user in self.user_certificates:
+            if user in self.user_resources:
                 ids.remove(user)
 
         if not len(ids):
@@ -211,7 +212,7 @@ class ClientSecure:
     def uncapsulate_resource_message(self, resource_payload):
         # Save user public values, certificate and cipher_spec
         for user in resource_payload['result']:
-            self.user_certificates[user['id']] = {
+            self.user_resources[user['id']] = {
                 'pub_key': deserialize_key(user['rsapubkey']),
                 'cc_pub_key': deserialize_key(user['ccpubkey']),
                 'certificate': deserialize_certificate(user['cccertificate']),
@@ -219,7 +220,6 @@ class ClientSecure:
             }
 
     def cipher_message_to_user(self, message, peer_rsa_pubkey=None, nounce=None):
-
         # Cipher payload
         aes_key = os.urandom(self.cipher_suite['aes']['key_size'])
         aes_cipher, aes_iv = generate_aes_cipher(
@@ -325,7 +325,7 @@ class ClientSecure:
         return deciphered_message, nounce, cipher_suite
 
     def generate_secure_receipt(self, message, nounce,
-                                 peer_rsa_pubkey, cipher_suite):
+                                peer_rsa_pubkey, cipher_suite):
         # Generate receipt from cleartext message and timestamp
         message_digest = base64.b64encode(digest_payload(
             message, cipher_suite['sha']['size'])).decode()

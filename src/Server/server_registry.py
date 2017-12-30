@@ -1,6 +1,6 @@
+from log import logger
 import os
 import sys
-from src.Server.log import logger
 import logging
 import re
 import json
@@ -130,7 +130,6 @@ class ServerRegistry:
             logging.exception("Cannot create description file " + path)
             sys.exit(1)
 
-        print("Added new user:", self.users)
         return user
 
     def listUsers(self, uid):

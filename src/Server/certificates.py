@@ -1,6 +1,6 @@
-from src.Server.log import logger
-from src.Server import lib
-from src.Client.cipher_utils import *
+from log import logger
+from cipher_utils import *
+import lib
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -10,7 +10,6 @@ from subprocess import check_output, DEVNULL
 import wget
 import os
 import shutil
-import base64
 import logging
 
 

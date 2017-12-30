@@ -1,6 +1,6 @@
 import logging
-from src.Server.log import logger
-from src.Server.server_secure import *
+from log import logger
+from server_secure import *
 import json
 import sys
 
