@@ -205,9 +205,8 @@ class Client:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
             self.user_id = data['result']
-            print(colored("User account succesfully created.", 'green'))
-
             logger.log(logging.DEBUG, "User account created")
+            print(colored("User account succesfully created.", 'green'))
 
     def list_message_boxes(self):
         payload = {

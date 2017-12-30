@@ -354,10 +354,10 @@ class ClientSecure:
                            encryptor.finalize()
 
         # Cipher nounce and AES key and IV
-        nounce_aes_iv_key = aes_iv + aes_key + nounce
-        ciphered_nounce_aes_iv_key = rsa_cipher(
+        aes_iv_key = aes_iv + aes_key
+        ciphered_aes_iv_key = rsa_cipher(
             peer_rsa_pubkey,
-            nounce_aes_iv_key,
+            aes_iv_key,
             cipher_suite['sha']['size'],
             cipher_suite['rsa']['cipher']['padding']
         )
@@ -365,8 +365,7 @@ class ClientSecure:
         payload = {
             'payload': {
                 'receipt': base64.b64encode(ciphered_receipt).decode(),
-                'nounce_key_iv':
-                    base64.b64encode(ciphered_nounce_aes_iv_key).decode()
+                'key_iv': base64.b64encode(ciphered_aes_iv_key).decode()
             },
             'signature': None,
             'cipher_spec': cipher_suite
@@ -383,21 +382,20 @@ class ClientSecure:
         payload = json.loads(base64.b64decode(payload.encode()))
 
         # Decipher AES key and IV
-        nounce_aes_iv_key = rsa_decipher(
+        aes_iv_key = rsa_decipher(
             self.private_key,
-            base64.b64decode(payload['payload']['nounce_key_iv'].encode()),
+            base64.b64decode(payload['payload']['key_iv'].encode()),
             self.cipher_suite['sha']['size'],
             self.cipher_suite['rsa']['cipher']['padding']
         )
 
         # If the user can't decrypt, return error message
-        if isinstance(nounce_aes_iv_key, dict) \
-                and 'error' in nounce_aes_iv_key:
-            return nounce_aes_iv_key, None
+        if isinstance(aes_iv_key, dict) \
+                and 'error' in aes_iv_key:
+            return aes_iv_key
 
-        aes_iv = nounce_aes_iv_key[0:16]
-        aes_key = nounce_aes_iv_key[16:16 + self.cipher_suite['aes']['key_size']]
-        nounce = nounce_aes_iv_key[16 + self.cipher_suite['aes']['key_size']:]
+        aes_iv = aes_iv_key[0:16]
+        aes_key = aes_iv_key[16:]
 
         # Decipher payload
         aes_cipher, aes_iv = generate_aes_cipher(
@@ -409,7 +407,7 @@ class ClientSecure:
                              + decryptor.finalize()
         deciphered_receipt = json.loads(deciphered_receipt.decode())
 
-        return deciphered_receipt, nounce
+        return deciphered_receipt
 
     def verify_secure_receipts(self, result, peer_certificate):
         # Decipher original sent message
@@ -434,8 +432,7 @@ class ClientSecure:
             to_rtn = {'msg': deciphered_message, 'receipts': []}
             for r in result['receipts']:
                 # Decipher receipt
-                deciphered_receipt, receipt_nounce = \
-                    self.decipher_secure_receipt(r['receipt'])
+                deciphered_receipt = self.decipher_secure_receipt(r['receipt'])
 
                 receipt = {
                     'date': r['date'],
@@ -460,6 +457,9 @@ class ClientSecure:
                             logging.DEBUG, "Invalid receipt signature: %r on %r"
                                            % (r['id'], r['data']))
                         receipt['receipt'] = 'Invalid receipt signature'
+
+                    receipt_nounce = base64.b64decode(
+                        deciphered_receipt['payload']['nounce'].encode())
 
                     # Validate nounce, actually proves that the message was read
                     receipt['receipt'] = \

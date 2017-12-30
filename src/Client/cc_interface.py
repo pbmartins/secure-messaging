@@ -1,11 +1,15 @@
+from log import logger
 from pkcs11.constants import Attribute
 from pkcs11.constants import ObjectClass
 from OpenSSL import crypto
 from termcolor import colored
+import logging
 import pkcs11
 import getpass
 import os
 import sys
+
+logger.log(logging.DEBUG, "Initializing CC module...")
 
 lib = pkcs11.lib(os.environ['PKCS11_MODULE'])
 token = None
