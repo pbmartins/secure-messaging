@@ -142,16 +142,18 @@ class X509Certificates:
             self.certs[cert_id] = {'cert': cc_cert, 'path': path}
 
     def get_user_cert(self, uuid, cert):
-        if uuid not in self.certs:
-            # Save it to file if it doesn't exist
-            # to be able to verify it via OCSP
+        if uuid not in self.certs or \
+                (self.certs[uuid]['cert'].get_serial_number()
+                     != cert.get_serial_number()
+                 and not self.check_expiration_or_revoked(self.certs[uuid])):
+
+            # Save to file if it does not exist yet
+            # Or if the provided cert is an update over the cached one, replace
             path = lib.USER_CERTS_DIR + uuid
             if not os.path.isfile(path):
                 with open(path, 'wb') as f:
                     f.write(
                         crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-
-                # TODO: Verificar se não é preciso substituir o certificado
 
             self.certs[uuid] = {'cert': cert, 'path': path}
 

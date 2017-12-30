@@ -478,7 +478,7 @@ class Client:
                 return
 
             msg = base64.b64decode(info['msg'].encode()).decode('utf-8')
-            print(colored("Message\n" + msg, 'green'))
+            print(colored("Message:\n" + msg, 'green'))
             print(colored("\nAll receipts: ", 'green'))
             for receipt in info['receipts']:
                 print(colored(
