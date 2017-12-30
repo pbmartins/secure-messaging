@@ -170,7 +170,8 @@ def read_from_ciphered_file(password, uuid):
     password = password if isinstance(password, bytes) else password.encode()
 
     # Decipher payload
-    payload = serialization.load_pem_private_key(f.read(), password, default_backend())
+    payload = serialization.load_pem_private_key(
+        f.read(), password, default_backend())
     f.close()
     return payload
 

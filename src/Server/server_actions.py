@@ -4,6 +4,7 @@ from src.Server.server_registry import *
 from src.Server.server_client import *
 from src.Server.certificates import *
 import json
+import re
 
 
 class ServerActions:
@@ -199,8 +200,15 @@ class ServerActions:
         # Read message
 
         response = self.registry.recvMessage(fromId, msg)
+        sender_id = int(response[0])
 
-        client.sendResult({"result": response}, nounce)
+        client.sendResult(
+            {
+                "result": response,
+                "resources": {'result': [self.get_user_resources(sender_id)]}
+            },
+            nounce
+        )
 
     def processReceipt(self, data, client, nounce):
         logger.log(logging.DEBUG, "%s" % json.dumps(data))
@@ -249,7 +257,18 @@ class ServerActions:
             return
 
         response = self.registry.getReceipts(fromId, msg)
-        client.sendResult({"result": response}, nounce)
+
+        pattern = "([0-9]+)_[0-9]+"
+        matches = re.match(pattern, msg)
+        dest_id = int(matches.group(1))
+        print("READER_ID:", dest_id)
+        client.sendResult(
+            {
+                "result": response,
+                "resources": {'result': [self.get_user_resources(dest_id)]}
+            },
+            nounce
+        )
 
     def processResource(self, data, client, nounce):
         logger.log(logging.DEBUG, "%s" % json.dumps(data))
@@ -261,23 +280,7 @@ class ServerActions:
 
         result = []
         for user in data['ids']:
-            pub_key = self.registry.users[user]['description']['secdata']['rsapubkey'] \
-                if user in self.registry.users else None
-            cc_pub_key = self.registry.users[user]['description']['secdata']['ccpubkey'] \
-                if user in self.registry.users else None
-            certificate = self.registry.users[user]['description']['secdata']['cccertificate'] \
-                if user in self.registry.users else None
-            cipher_spec = self.registry.users[user]['description']['secdata']['cipher_spec'] \
-                if user in self.registry.users else None
-            result += [
-                {
-                    'id': user,
-                    'rsapubkey': pub_key,
-                    'ccpubkey': cc_pub_key,
-                    'cccertificate': certificate,
-                    'cipher_spec': cipher_spec
-                }
-            ]
+            result += [self.get_user_resources(user)]
 
         client.sendResult({"result": result}, nounce)
 
@@ -293,3 +296,26 @@ class ServerActions:
 
         client.sendResult(data, nounce)
 
+    def get_user_resources(self, user):
+        pub_key = self.registry.users[user]['description']['secdata'][
+            'rsapubkey'] \
+            if user in self.registry.users else None
+        cc_pub_key = self.registry.users[user]['description']['secdata'][
+            'ccpubkey'] \
+            if user in self.registry.users else None
+        certificate = self.registry.users[user]['description']['secdata'][
+            'cccertificate'] \
+            if user in self.registry.users else None
+        cipher_spec = self.registry.users[user]['description']['secdata'][
+            'cipher_spec'] \
+            if user in self.registry.users else None
+
+        result = {
+            'id': user,
+            'rsapubkey': pub_key,
+            'ccpubkey': cc_pub_key,
+            'cccertificate': certificate,
+            'cipher_spec': cipher_spec
+        }
+
+        return result

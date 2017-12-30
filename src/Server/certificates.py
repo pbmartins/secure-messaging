@@ -151,6 +151,8 @@ class X509Certificates:
                     f.write(
                         crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
 
+                # TODO: Verificar se não é preciso substituir o certificado
+
             self.certs[uuid] = {'cert': cert, 'path': path}
 
         return self.certs[uuid]

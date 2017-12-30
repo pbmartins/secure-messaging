@@ -84,13 +84,14 @@ class Client:
             except:
                 print('ERROR: Invalid response from server', 'red')
 
-    def get_resources(self, user_ids):
+    def get_resources(self, user_ids, resource_data=None):
         # Get receiver public key and certificate
         resource_payload = self.secure.encapsulate_resource_message(user_ids)
         if resource_payload is not None:
-            data = self.send_payload(
-                self.secure.encapsulate_secure_message(resource_payload))
-            resource_data = self.secure.uncapsulate_secure_message(data)
+            if resource_data is None:
+                data = self.send_payload(
+                    self.secure.encapsulate_secure_message(resource_payload))
+                resource_data = self.secure.uncapsulate_secure_message(data)
 
             if 'error' in resource_data:
                 print(colored("ERROR: " + resource_data['error'], 'red'))
@@ -180,6 +181,8 @@ class Client:
             self.user_id = message['result']
 
             logger.log(logging.DEBUG, "Secure session with server established")
+
+        print(colored("Your UserID: %d" % self.user_id, 'green'))
 
     def create_user(self, cipher_spec):
         logger.log(logging.DEBUG, "Creating user account")
@@ -312,18 +315,15 @@ class Client:
 
         # Read message
         print(colored("Message (two line breaks to send it):", 'blue'))
-        payload['msg'] = ""
+        msg = ""
 
         while True:
             line = input()
-            payload['msg'] += line + "\n"
+            msg += line + "\n"
             if not len(line):
                 break
 
-        payload['msg'] = base64.b64encode(
-            payload['msg'].strip().encode('utf-8')).decode()
-
-        payload['copy'] = payload['msg']
+        msg = base64.b64encode(msg.strip().encode('utf-8')).decode()
 
         print(colored('\nSending Message ...\n', 'yellow'))
 
@@ -333,11 +333,10 @@ class Client:
 
         # Cipher sender and receiver message
         payload['msg'], nounce = self.secure.cipher_message_to_user(
-            'message', payload['msg'], payload['dst'])
-        payload['copy'], nounce_none = self.secure.cipher_message_to_user(
-            'message', payload['copy'], payload['src'], self.secure.public_key,
-            self.secure.user_certificates[int(payload['dst'])]['cipher_spec'],
-            nounce)
+            msg, self.secure.user_certificates[payload['dst']]['pub_key'])
+
+        payload['copy'], nounce_none = \
+            self.secure.cipher_message_to_user(msg, None, nounce)
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
@@ -378,17 +377,18 @@ class Client:
         else:
             # Get sender public key and certificate
             # Get receiver public key and certificate
-            if not self.get_resources([int(data['result'][0])]):
+            sender_id = int(data['result'][0])
+            if not self.get_resources([sender_id], data['resources']):
                 print("error resource")
                 return
 
-            print(colored("Message Sender ID: " + data['result'][0], 'green'))
+            print(colored("Message Sender ID: %d" % sender_id, 'green'))
 
             # Decipher message
             message, nounce, cipher_suite = \
                 self.secure.decipher_message_from_user(
                     data['result'][1],
-                    self.secure.user_certificates[int(data['result'][0])]['certificate']
+                    self.secure.user_certificates[sender_id]['certificate']
                 )
 
             if 'error' in message:
@@ -461,26 +461,24 @@ class Client:
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
-            if not len(data['result']['receipts']):
-                print(colored("Message ID: " + message['msg'], 'green'))
-                print(colored("\nNo receipts.", 'green'))
-                return
+            if len(data['result']['receipts']):
+                # Get receiver public key and certificate
+                dest_id = int(data['result']['receipts'][0]['id'])
+                if not self.get_resources([dest_id], data['resources']):
+                    return
 
-            # Get receiver public key and certificate
-            dest_id = int(data['result']['receipts'][0]['id'])
-            if not self.get_resources([dest_id]):
-                return
+                peer_cert = self.secure.user_certificates[dest_id]['certificate']
+            else:
+                peer_cert = None
 
-            info = self.secure.verify_secure_receipts(
-                data['result'],
-                self.secure.user_certificates[dest_id]['certificate']
-            )
+            info = self.secure.verify_secure_receipts(data['result'], peer_cert)
 
             if 'error' in info:
                 print(colored("ERROR: " + info['error'], 'red'))
                 return
 
-            print(colored("Message: " + info['msg'], 'green'))
+            msg = base64.b64decode(info['msg'].encode()).decode('utf-8')
+            print(colored("Message\n" + msg, 'green'))
             print(colored("\nAll receipts: ", 'green'))
             for receipt in info['receipts']:
                 print(colored(

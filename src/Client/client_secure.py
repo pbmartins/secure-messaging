@@ -3,7 +3,6 @@ from src.Client import cc_interface as cc
 from src.Client import certificates
 from src.Client.log import logger
 from cryptography.exceptions import *
-from OpenSSL import crypto
 import os
 import base64
 import json
@@ -38,7 +37,7 @@ class ClientSecure:
         self.priv_value, self.pub_value = generate_ecdh_keypair()
         salt = os.urandom(16)
         self.salt_list += [salt]
-        nounce = self.uuid
+        nounce = base64.b64encode(os.urandom(16)).decode()
         self.nounces += [nounce]
 
         message = {
@@ -219,52 +218,47 @@ class ClientSecure:
                 'cipher_spec': get_cipher_suite(user['cipher_spec'])
             }
 
-    def cipher_message_to_user(self, payload_type, message,
-                               user_id, peer_rsa_pubkey=None,
-                               cipher_suite=None, nounce=None):
-
-        if cipher_suite is None:
-            cipher_suite = self.cipher_suite
+    def cipher_message_to_user(self, message, peer_rsa_pubkey=None, nounce=None):
 
         # Cipher payload
-        aes_key = os.urandom(cipher_suite['aes']['key_size'])
+        aes_key = os.urandom(self.cipher_suite['aes']['key_size'])
         aes_cipher, aes_iv = generate_aes_cipher(
-            aes_key, cipher_suite['aes']['mode'])
+            aes_key, self.cipher_suite['aes']['mode'])
 
         encryptor = aes_cipher.encryptor()
         ciphered_message = encryptor.update(json.dumps(message).encode()) + \
                            encryptor.finalize()
 
         if peer_rsa_pubkey is None:
-            peer_rsa_pubkey = self.user_certificates[user_id]['pub_key']
+            peer_rsa_pubkey = self.public_key
 
         # Generate nounce to verify message readings
         if nounce is None:
             nounce = get_nounce(16, message.encode(),
-                                cipher_suite['sha']['size'])
+                                self.cipher_suite['sha']['size'])
 
         # Cipher nounce and AES key and IV
         nounce_aes_iv_key = aes_iv + aes_key + nounce
         ciphered_nounce_aes_iv_key = rsa_cipher(
             peer_rsa_pubkey,
             nounce_aes_iv_key,
-            cipher_suite['sha']['size'],
-            cipher_suite['rsa']['cipher']['padding']
+            self.cipher_suite['sha']['size'],
+            self.cipher_suite['rsa']['cipher']['padding']
         )
 
         payload = {
             'payload': {
-                payload_type: base64.b64encode(ciphered_message).decode(),
+                'message': base64.b64encode(ciphered_message).decode(),
                 'nounce_key_iv':
                     base64.b64encode(ciphered_nounce_aes_iv_key).decode()
             },
             'signature': None,
-            'cipher_spec': cipher_suite
+            'cipher_spec': self.cipher_suite
         }
 
         # Sign payload
-        payload['signature'] = base64.b64encode(
-            cc.sign(json.dumps(payload['payload']).encode(), self.cc_pin)).decode()
+        payload['signature'] = base64.b64encode(cc.sign(
+            json.dumps(payload['payload']).encode(), self.cc_pin)).decode()
 
         return base64.b64encode(json.dumps(payload).encode()).decode(), nounce
 
@@ -425,9 +419,13 @@ class ClientSecure:
         to_rtn = {'error': 'Cannot decipher message nor receipts'} \
             if 'error' in deciphered_message else None
 
+        if peer_certificate is None:
+            return {'msg': deciphered_message, 'receipts': []}
+
         # Validate receipts sender certificate
         # Verify certificate validity
-        if not self.certificates.validate_cert(peer_certificate):
+        if to_rtn is None and \
+                not self.certificates.validate_cert(peer_certificate):
             logger.log(logging.DEBUG, "Invalid certificate; "
                                       "droping message")
             to_rtn = {'error': 'Invalid peer certificate'}

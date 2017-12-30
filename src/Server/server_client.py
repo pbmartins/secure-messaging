@@ -19,7 +19,6 @@ class Client:
         self.bufout = ""
         self.addr = addr
         self.id = None
-        self.sec_data = None
         self.secure = ServerSecure(registry=registry, certs=certs)
 
         # TODO: Apply security constraints
