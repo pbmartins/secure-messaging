@@ -17,7 +17,7 @@ try:
     for t in lib.get_tokens():
         token = t
         break
-except AttributeError:
+except:
     print(colored('ERROR: CC device not connected', 'red'))
     sys.exit(0)
 

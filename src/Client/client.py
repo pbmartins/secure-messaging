@@ -34,10 +34,10 @@ class Client:
         ]
 
         print("\n--- Choose cipher suite ---",
-              "\n0 - %-75s (Not Recommended)" % suites[0],
+              "\n0 - %-75s " % suites[0],
               "\n1 - %-75s " % suites[1],
               "\n2 - %-75s (Recommended)" % suites[2],
-              "\n3 - %-75s (Not Recommended)" % suites[3],
+              "\n3 - %-75s " % suites[3],
               "\n4 - %-75s " % suites[4],
               "\n5 - %-75s (Recommended)" % suites[5]
               )
@@ -332,9 +332,9 @@ class Client:
             return
 
         # Cipher sender and receiver message
+        destination = self.secure.user_resources[payload['dst']]
         payload['msg'], nounce = self.secure.cipher_message_to_user(
-            msg, self.secure.user_resources[payload['dst']]['pub_key'])
-
+            msg, destination['pub_key'], cipher_suite=destination['cipher_spec'])
         payload['copy'], nounce_none = \
             self.secure.cipher_message_to_user(msg, None, nounce)
 
@@ -375,8 +375,7 @@ class Client:
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
-            # Get sender public key and certificate
-            # Get receiver public key and certificate
+            # Get sender and receiver public key and certificate
             sender_id = int(data['result'][0])
             if not self.get_resources([sender_id], data['resources']):
                 print("error resource")
@@ -403,7 +402,8 @@ class Client:
 
             # Send receipt
             self.receipt_message(payload['msg'], message, nounce,
-                                 int(data['result'][0]), cipher_suite)
+                                 int(data['result'][0]),
+                                 self.secure.user_resources[sender_id]['cipher_spec'])
 
     def receipt_message(self, message_id, message, nounce,
                         sender_id, cipher_suite):

@@ -144,7 +144,6 @@ class ClientSecure:
                 deciphered_payload = {'error': 'Invalid message signature'}
 
         if deciphered_payload is None:
-
             message['payload'] = json.loads(
                 base64.b64decode(message['payload'].encode()))
 
@@ -219,11 +218,16 @@ class ClientSecure:
                 'cipher_spec': get_cipher_suite(user['cipher_spec'])
             }
 
-    def cipher_message_to_user(self, message, peer_rsa_pubkey=None, nounce=None):
+    def cipher_message_to_user(self, message, peer_rsa_pubkey=None, nounce=None,
+                               cipher_suite=None):
+
+        if cipher_suite is None:
+            cipher_suite = self.cipher_suite
+
         # Cipher payload
-        aes_key = os.urandom(self.cipher_suite['aes']['key_size'])
+        aes_key = os.urandom(cipher_suite['aes']['key_size'])
         aes_cipher, aes_iv = generate_aes_cipher(
-            aes_key, self.cipher_suite['aes']['mode'])
+            aes_key, cipher_suite['aes']['mode'])
 
         encryptor = aes_cipher.encryptor()
         ciphered_message = encryptor.update(json.dumps(message).encode()) + \
@@ -235,15 +239,15 @@ class ClientSecure:
         # Generate nounce to verify message readings
         if nounce is None:
             nounce = get_nounce(16, message.encode(),
-                                self.cipher_suite['sha']['size'])
+                                cipher_suite['sha']['size'])
 
         # Cipher nounce and AES key and IV
         nounce_aes_iv_key = aes_iv + aes_key + nounce
         ciphered_nounce_aes_iv_key = rsa_cipher(
             peer_rsa_pubkey,
             nounce_aes_iv_key,
-            self.cipher_suite['sha']['size'],
-            self.cipher_suite['rsa']['cipher']['padding']
+            cipher_suite['sha']['size'],
+            cipher_suite['rsa']['cipher']['padding']
         )
 
         payload = {
@@ -253,7 +257,7 @@ class ClientSecure:
                     base64.b64encode(ciphered_nounce_aes_iv_key).decode()
             },
             'signature': None,
-            'cipher_spec': self.cipher_suite
+            'cipher_spec': cipher_suite
         }
 
         # Sign payload
