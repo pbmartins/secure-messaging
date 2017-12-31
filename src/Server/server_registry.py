@@ -1,4 +1,5 @@
 from log import logger
+from lib import *
 import os
 import sys
 import logging
@@ -7,10 +8,6 @@ import json
 import time
 
 sys.tracebacklimit = 30
-
-MBOXES_PATH = "mboxes"
-RECEIPTS_PATH = "receipts"
-DESC_FILENAME = "description"
 
 
 class UserDescription(dict):
