@@ -481,11 +481,19 @@ class Client:
             print(colored("Message:\n" + msg, 'green'))
             print(colored("\nAll receipts: ", 'green'))
             for receipt in info['receipts']:
-                print(colored(
-                    "\tDate: " + time.ctime(float(receipt['date']) / 1000), 'green'))
+                print(colored("\tDate: " +
+                              time.ctime(float(receipt['date']) / 1000), 'green'))
                 print(colored(
                     "\tReceipt sender ID: " + receipt['id'], 'green'))
-                print(colored("\tHash(timestamp|message): " + receipt['receipt'], 'green'))
+
+                if 'error' in receipt['receipt']:
+                    print(colored("\tERROR: " +
+                                  receipt['receipt']['error'], 'red'))
+                else:
+                    print(colored("\tHash(timestamp|message): " +
+                                  receipt['receipt']['hash'], 'green'))
+                    print(colored("\tSignature: " +
+                                  receipt['receipt']['signature'], 'green'))
                 print("")
 
 
