@@ -524,10 +524,10 @@ class Client:
                     print(colored("\tERROR: " +
                                   receipt['receipt']['error'], 'red'))
                 else:
-                    print(colored("\tHash(timestamp|message): " +
+                    print(colored("\tHash(message|timestamp|nonce): " +
                                   receipt['receipt']['hash'], 'green'))
-                    print(colored("\tSignature: " +
-                                  receipt['receipt']['signature'], 'green'))
+                    print(colored("\tTimestamp: " +
+                                  receipt['receipt']['timestamp'], 'green'))
                 print("")
 
 

@@ -119,6 +119,22 @@ class ServerActions:
             client.sendResult({"error": "wrong message format"}, nonce)
             return
 
+        if not self.registry.userExists(user):
+            logger.log(logging.ERROR,
+                "Unknown source id for \"new\" message: " + json.dumps(data))
+            client.sendResult({"error": "wrong parameters"}, nonce)
+            return
+
+        if self.registry.getUser(client.secure.uuid).id != user:
+            logger.log(
+                logging.ERROR,
+                "Source id different from client id for \"new\" message: "
+                + json.dumps(data)
+            )
+            client.sendResult({"error": "wrong parameters"}, nonce)
+            return
+
+
         client.sendResult(
             {"result": self.registry.userNewMessages(user)}, nonce)
 
@@ -131,8 +147,23 @@ class ServerActions:
 
         if user < 0:
             logger.log(logging.ERROR,
-                "No valid \"id\" field in \"new\" message: " + json.dumps(data))
+                "No valid \"id\" field in \"all\" message: " + json.dumps(data))
             client.sendResult({"error": "wrong message format"}, nonce)
+            return
+
+        if not self.registry.userExists(user):
+            logger.log(logging.ERROR,
+                "Unknown source id for \"all\" message: " + json.dumps(data))
+            client.sendResult({"error": "wrong parameters"}, nonce)
+            return
+
+        if self.registry.getUser(client.secure.uuid).id != user:
+            logger.log(
+                logging.ERROR,
+                "Source id different from client id for \"all\" message: "
+                + json.dumps(data)
+            )
+            client.sendResult({"error": "wrong parameters"}, nonce)
             return
 
         client.sendResult({"result": [self.registry.userAllMessages(user),

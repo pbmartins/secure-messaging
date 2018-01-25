@@ -358,22 +358,19 @@ class ClientSecure:
 
     def generate_secure_receipt(self, message, nonce,
                                 peer_rsa_pubkey, cipher_suite):
-        # Generate receipt from cleartext message and timestamp
-        message_digest = base64.b64encode(digest_payload(
-            message, cipher_suite['sha']['size'])).decode()
-
+        # Generate receipt from cleartext message, timestamp and nonce
+        timestamp = str(time.time())
         receipt = {
-            'nonce': base64.b64encode(nonce).decode(),
+            'timestamp': timestamp,
             'hashed_timestamp_message': base64.b64encode(digest_payload(
-                message_digest + str(time.time()),
-                cipher_suite['sha']['size'])).decode(),
-            'signature': None
+                message.encode() + timestamp.encode() + nonce,
+                cipher_suite['sha']['size'])).decode()
         }
 
-        # Sign receipt message
-        receipt['signature'] = base64.b64encode(cc.sign(
-            json.dumps(receipt['hashed_timestamp_message']).encode(),
-            self.cc_pin)).decode()
+        print(timestamp)
+        print(message)
+        print(nonce)
+        print(cipher_suite['sha']['size'])
 
         # Cipher receipt
         aes_key = os.urandom(cipher_suite['aes']['key_size'])
@@ -490,19 +487,25 @@ class ClientSecure:
                 if 'error' in deciphered_receipt:
                     receipt['receipt'] = deciphered_receipt
                 else:
-                    receipt_nonce = base64.b64decode(
-                        deciphered_receipt['nonce'].encode())
+                    receipt_timestamp = deciphered_receipt['timestamp'].encode()
+                    message = base64.b64decode(deciphered_message.encode())
 
-                    # Validate nonce, actually proves that the message was read
-                    if nonce == receipt_nonce:
+                    # Validate nonce, timestamp and message,
+                    # actually proves that the message was read
+                    hash_timestamp_message = base64.b64encode(digest_payload(
+                        message + receipt_timestamp + nonce,
+                        cipher_suite['sha']['size'])).decode()
+
+                    if hash_timestamp_message == \
+                            deciphered_receipt['hashed_timestamp_message']:
                         receipt['receipt'] = {
                             'hash': deciphered_receipt[
                                 'hashed_timestamp_message'],
-                            'signature': deciphered_receipt['signature']
+                            'timestamp': deciphered_receipt['timestamp']
                         }
                     else:
                         receipt['receipt'] = \
-                            {'error': 'Invalid nonce; invalid receipt'}
+                            {'error': 'Invalid hash; invalid receipt'}
 
                 to_rtn['receipts'] += [receipt]
 
