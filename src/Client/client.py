@@ -11,6 +11,7 @@ import base64
 import os
 import time
 import logging
+import sys
 
 # Server address
 HOST = ""   # All available interfaces
@@ -60,7 +61,8 @@ class Client:
 
         return pin
 
-    def __init__(self):
+    def __init__(self, debug=False):
+        self.debug = debug
         self.ss = socket(AF_INET, SOCK_STREAM)
         self.ss.connect((HOST, 8080))
         self.uuid = None
@@ -96,7 +98,7 @@ class Client:
             if 'error' in resource_data:
                 print(colored("ERROR: " + resource_data['error'], 'red'))
                 return False
-            elif resource_data['result'][0]['rsapubkey'] is None:
+            elif resource_data['result'][0]['secdata'] is None:
                 print(colored('User does not exist', 'red'))
                 return False
 
@@ -191,12 +193,14 @@ class Client:
             'uuid': self.uuid,
             'secdata': {
                 'rsapubkey': serialize_key(self.secure.public_key),
-                'ccpubkey': serialize_key(
-                        self.cc_certificate.get_pubkey().to_cryptography_key()),
                 'cccertificate': serialize_certificate(self.cc_certificate),
                 'cipher_spec': cipher_spec
-            }
+            },
+            'signature': None
         }
+
+        # Sign secdata
+        payload['signature'] = self.secure.cc_sign_json(payload['secdata'])
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
@@ -213,14 +217,17 @@ class Client:
             'type': 'list'
         }
 
-        while True:
-            try:
-                user_id = input(colored("User ID (optional): ", 'blue'))
-                if len(user_id):
-                    payload['id'] = int(user_id)
-                break
-            except ValueError:
-                print(colored("ERROR: Invalid User ID", 'red'))
+        if self.debug:
+            while True:
+                try:
+                    user_id = input(colored("User ID (optional): ", 'blue'))
+                    if len(user_id):
+                        payload['id'] = int(user_id)
+                    break
+                except ValueError:
+                    print(colored("ERROR: Invalid User ID", 'red'))
+        else:
+            user_id = self.user_id
 
         print(colored('\nGetting message boxes list ...\n', 'yellow'))
 
@@ -243,12 +250,15 @@ class Client:
             'type': 'new'
         }
 
-        while True:
-            try:
-                payload['id'] = int(input(colored("User ID: ", 'blue')))
-                break
-            except ValueError:
-                print(colored("ERROR: Invalid User ID", 'red'))
+        if self.debug:
+            while True:
+                try:
+                    payload['id'] = int(input(colored("User ID: ", 'blue')))
+                    break
+                except ValueError:
+                    print(colored("ERROR: Invalid User ID", 'red'))
+        else:
+            payload['id'] = self.user_id
 
         print(colored(str.format('\nGetting new messages for user {:d} ...\n',
                                  payload['id']), 'yellow'))
@@ -270,12 +280,15 @@ class Client:
             'type': 'all'
         }
 
-        while True:
-            try:
-                payload['id'] = int(input(colored("User ID: ", 'blue')))
-                break
-            except ValueError:
-                print(colored("ERROR: Invalid User ID", 'red'))
+        if self.debug:
+            while True:
+                try:
+                    payload['id'] = int(input(colored("User ID: ", 'blue')))
+                    break
+                except ValueError:
+                    print(colored("ERROR: Invalid User ID", 'red'))
+        else:
+            payload['id'] = self.user_id
 
         print(colored(str.format('\nGetting all messages for user {:d} ...\n',
                                  payload['id']), 'yellow'))
@@ -328,15 +341,17 @@ class Client:
         print(colored('\nSending Message ...\n', 'yellow'))
 
         # Get receiver public key and certificate
-        if not self.get_resources([payload['dst']]):
+        if not self.get_resources([payload['dst']]) \
+                or payload['dst'] not in self.secure.user_resources:
+            print(colored("ERROR: Receiver does not have valid info", 'red'))
             return
 
         # Cipher sender and receiver message
         destination = self.secure.user_resources[payload['dst']]
-        payload['msg'], nounce = self.secure.cipher_message_to_user(
-            msg, destination['pub_key'], cipher_suite=destination['cipher_spec'])
-        payload['copy'], nounce_none = \
-            self.secure.cipher_message_to_user(msg, None, nounce)
+        payload['msg'], nonce = self.secure.cipher_message_to_user(
+            msg, destination['pub_key'], cipher_suite=destination['cipher_suite'])
+        payload['copy'], nonce_none = \
+            self.secure.cipher_message_to_user(msg, None, nonce)
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
@@ -353,12 +368,16 @@ class Client:
             'type': 'recv'
         }
 
-        while True:
-            try:
-                payload['id'] = int(input(colored("Message box's User ID: ", 'blue')))
-                break
-            except ValueError:
-                print(colored("ERROR: Invalid User ID", 'red'))
+        if self.debug:
+            while True:
+                try:
+                    payload['id'] = int(input(colored("Message box's User ID: ",
+                                                      'blue')))
+                    break
+                except ValueError:
+                    print(colored("ERROR: Invalid User ID", 'red'))
+        else:
+            payload['id'] = self.user_id
 
         while True:
             try:
@@ -377,14 +396,15 @@ class Client:
         else:
             # Get sender and receiver public key and certificate
             sender_id = int(data['result'][0])
-            if not self.get_resources([sender_id], data['resources']):
-                print("error resource")
+            if not self.get_resources([sender_id], data['resources']) \
+                    or sender_id not in self.secure.user_resources:
+                print(colored("ERROR: Sender does not have valid info", 'red'))
                 return
 
             print(colored("Message Sender ID: %d" % sender_id, 'green'))
 
             # Decipher message
-            message, nounce, cipher_suite = \
+            message, nonce, cipher_suite = \
                 self.secure.decipher_message_from_user(
                     data['result'][1],
                     self.secure.user_resources[sender_id]['certificate']
@@ -401,30 +421,37 @@ class Client:
             print(colored('\nSending receipt ...\n', 'yellow'))
 
             # Send receipt
-            self.receipt_message(payload['msg'], message, nounce,
-                                 int(data['result'][0]),
-                                 self.secure.user_resources[sender_id]['cipher_spec'])
+            self.receipt_message(
+                payload['msg'],
+                message,
+                nonce,
+                int(data['result'][0]),
+                self.secure.user_resources[sender_id]['cipher_suite']
+            )
 
-    def receipt_message(self, message_id, message, nounce,
+    def receipt_message(self, message_id, message, nonce,
                         sender_id, cipher_suite):
 
         # Get receiver public key and certificate
-        if not self.get_resources([sender_id]):
+        if not self.get_resources([sender_id]) \
+                or sender_id not in self.secure.user_resources:
+            print(colored("ERROR: Receipt destination user"
+                          " does not have valid info", 'red'))
             print(colored("\nReceipt not sent!\n", 'red'))
             return
 
-        # Create payload - not necessary to generate nounce
+        # Create payload - not necessary to generate nonce
         payload = {
             'type': 'receipt',
             'id': self.user_id,
             'msg': message_id,
             'receipt': self.secure.generate_secure_receipt(
                 message,
-                nounce,
+                nonce,
                 self.secure.user_resources[sender_id]['pub_key'],
                 cipher_suite
             ),
-            'nounce': None
+            'nonce': None
         }
 
         self.send_payload(self.secure.encapsulate_secure_message(payload),
@@ -439,12 +466,16 @@ class Client:
             'type': 'status'
         }
 
-        while True:
-            try:
-                message['id'] = int(input(colored("Receipts box's User ID: ", 'blue')))
-                break
-            except ValueError:
-                print(colored("ERROR: Invalid User ID", 'red'))
+        if self.debug:
+            while True:
+                try:
+                    message['id'] = int(input(colored("Receipts box's User ID: ",
+                                                      'blue')))
+                    break
+                except ValueError:
+                    print(colored("ERROR: Invalid User ID", 'red'))
+        else:
+            message['id'] = self.user_id
 
         while True:
             try:
@@ -464,7 +495,10 @@ class Client:
             if len(data['result']['receipts']):
                 # Get receiver public key and certificate
                 dest_id = int(data['result']['receipts'][0]['id'])
-                if not self.get_resources([dest_id], data['resources']):
+                if not self.get_resources([dest_id], data['resources']) \
+                        or dest_id not in self.secure.user_resources:
+                    print(colored("ERROR: Receipt sender"
+                                  " does not have valid info", 'red'))
                     return
 
                 peer_cert = self.secure.user_resources[dest_id]['certificate']
@@ -509,7 +543,14 @@ def main():
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
 
-    client = Client()
+    debug = input(colored("Debug mode? [y/N]", 'yellow'))
+    while debug != 'y' and debug != 'N':
+        debug = input(colored("Debug mode? [y/N]", 'yellow'))
+
+    debug = True if debug == 'y' else False
+    logger.logger.propagate = debug
+
+    client = Client(debug)
 
     while True:
         print("")

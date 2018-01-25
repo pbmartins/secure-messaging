@@ -2,14 +2,15 @@ from lib import *
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa, padding, ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import hashes, serialization, hmac
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.exceptions import *
 from OpenSSL import crypto
 import os
 import base64
 
 
-def get_nounce(byte_size, message, hash_algorithm):
+def get_nonce(byte_size, message, hash_algorithm):
     return digest_payload(message + os.urandom(byte_size), hash_algorithm) 
 
 
@@ -106,6 +107,35 @@ def digest_payload(payload, hash_algorithm):
     hashed_payload = digest.finalize()
 
     return hashed_payload
+
+
+def generate_mac(key, payload, hash_algorithm):
+    assert payload is not None
+
+    h = get_hash_algorithm(hash_algorithm)
+    key = key if isinstance(key, bytes) else key.encode()
+    payload = payload if isinstance(payload, bytes) else payload.encode()
+
+    hashmac = hmac.HMAC(key, h, backend=default_backend())
+    hashmac.update(payload)
+    return hashmac.finalize()
+
+
+def verify_mac(key, payload, signature, hash_algorithm):
+    assert payload is not None
+
+    h = get_hash_algorithm(hash_algorithm)
+    key = key if isinstance(key, bytes) else key.encode()
+    payload = payload if isinstance(payload, bytes) else payload.encode()
+
+    hashmac = hmac.HMAC(key, h, backend=default_backend())
+    hashmac.update(payload)
+    try:
+        hashmac.verify(signature)
+        return True
+    except InvalidSignature:
+        return False
+
 
 """
     Key exchange operations

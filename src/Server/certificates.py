@@ -5,7 +5,7 @@ from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.x509 import oid, extensions
-from datetime import datetime
+from datetime import datetime, timedelta
 from subprocess import check_output, DEVNULL
 import wget
 import os
@@ -115,13 +115,14 @@ class X509Certificates:
         self.ca_cert = None
         self.crls = {}
         self.certs = {}
+        self.valid_certs = {}
 
         X509Certificates.create_folders()
 
-        self.import_user_certs(users)
         self.import_certs(lib.XCA_DIR)
         self.import_certs(lib.CERTS_DIR)
         self.import_keys()
+        self.import_user_certs(users)
 
     def import_user_certs(self, users):
         for uid in users:
@@ -130,15 +131,10 @@ class X509Certificates:
                 user['description']['secdata']['cccertificate'])
             cert_id = X509Certificates.get_cert_id(cc_cert)
 
-            # Save it to file if it doesn't exist
-            # to be able to verify it via OCSP
+            # Validate saved certs in user description
             path = lib.USER_CERTS_DIR + cert_id
-            if not os.path.isfile(path):
-                with open(path, 'wb') as f:
-                    f.write(
-                        crypto.dump_certificate(crypto.FILETYPE_PEM, cc_cert))
-
-            self.certs[cert_id] = {'cert': cc_cert, 'path': path}
+            if self.validate_cert(cc_cert):
+                self.certs[cert_id] = {'cert': cc_cert, 'path': path}
 
     def get_user_cert(self, uuid, cert):
         if uuid not in self.certs or \
@@ -267,6 +263,15 @@ class X509Certificates:
 
         c = self.get_user_cert(cert_id, cert)
 
+        # Verify first the cache
+        if cert_id in self.valid_certs \
+                and self.valid_certs[cert_id]['serial'] == \
+                    cert.get_serial_number() \
+                and self.valid_certs[cert_id]['date'] \
+                    + timedelta(days=1) > datetime.today():
+            logger.log(logging.DEBUG, "[Cache] Valid certificate: %r" % cert_id)
+            return True
+
         # Check if it has extension KeyUsage with digital signature
         try:
             ext = cert.to_cryptography().extensions.get_extension_for_oid(
@@ -320,8 +325,20 @@ class X509Certificates:
 
             # If it gets here, it means it's valid
             logger.log(logging.DEBUG, "Valid certificate: %r" % cert_id)
+
+            # Update cache
+            self.valid_certs[cert_id] = {
+                'serial': cert.get_serial_number(),
+                'date': datetime.today()
+            }
+
             return True
 
         except Exception as e:
             logger.log(logging.DEBUG, "Invalid certificate: %r" % cert_id)
+
+            # Remove from cache
+            if cert_id in self.valid_certs:
+                del self.valid_certs[cert_id]
+
             return False

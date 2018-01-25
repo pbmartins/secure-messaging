@@ -40,9 +40,9 @@ class ServerSecure:
         self.peer_salt = base64.b64decode(payload['secdata']['salt'].encode())
         self.number_of_hash_derivations = payload['secdata']['index']
 
-        return {'type': 'init', 'uuid': self.uuid}, payload['nounce']
+        return {'type': 'init', 'uuid': self.uuid}, payload['nonce']
 
-    def encapsulate_secure_message(self, payload, nounce):
+    def encapsulate_secure_message(self, payload, nonce):
         # Values used in key exchange
         self.salt = os.urandom(16)
         self.priv_value, self.pub_value = generate_ecdh_keypair()
@@ -68,7 +68,7 @@ class ServerSecure:
         # Sign payload with CC authentication public key
         message_payload = json.dumps({
             'message': base64.b64encode(ciphered_payload).decode(),
-            'nounce': nounce,
+            'nonce': nonce,
             'secdata': {
                 'dhpubvalue': serialize_key(self.pub_value),
                 'salt': base64.b64encode(self.salt).decode(),
@@ -130,7 +130,7 @@ class ServerSecure:
         message['payload'] = json.loads(
             base64.b64decode(message['payload'].encode()))
 
-        nounce = message['payload']['nounce']
+        nonce = message['payload']['nonce']
 
         if deciphered_payload is None:
             # Derive AES key and decipher payload
@@ -168,4 +168,4 @@ class ServerSecure:
                                      decryptor.finalize()
                 deciphered_payload = json.loads(deciphered_payload.decode())
 
-        return deciphered_payload, nounce
+        return deciphered_payload, nonce

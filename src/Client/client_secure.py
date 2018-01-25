@@ -19,7 +19,7 @@ class ClientSecure:
         self.cipher_suite = cipher_suite
         self.number_of_hash_derivations = 1
         self.salt_list = []
-        self.nounces = []
+        self.nonces = []
         self.cc_cert = cc.get_pub_key_certificate()
         self.certificates = certificates.X509Certificates()
 
@@ -34,12 +34,16 @@ class ClientSecure:
 
         self.user_resources = {}
 
+    def cc_sign_json(self, payload):
+        return base64.b64encode(cc.sign(
+            json.dumps(payload).encode(), self.cc_pin)).decode()
+
     def encapsulate_insecure_message(self):
         self.priv_value, self.pub_value = generate_ecdh_keypair()
         salt = os.urandom(16)
         self.salt_list += [salt]
-        nounce = base64.b64encode(os.urandom(16)).decode()
-        self.nounces += [nounce]
+        nonce = base64.b64encode(os.urandom(16)).decode()
+        self.nonces += [nonce]
 
         message = {
             'type': 'insecure',
@@ -49,7 +53,7 @@ class ClientSecure:
                 'salt': base64.b64encode(salt).decode(),
                 'index': self.number_of_hash_derivations
             },
-            'nounce': nounce,
+            'nonce': nonce,
             'cipher_spec': self.cipher_spec
         }
         logger.log(logging.DEBUG, "INSECURE MESSAGE SENT: %r" % message)
@@ -60,9 +64,9 @@ class ClientSecure:
         # Values used in key exchange
         salt = os.urandom(16)
         self.salt_list += [salt]
-        nounce = base64.b64encode(get_nounce(16, json.dumps(payload).encode(),
+        nonce = base64.b64encode(get_nonce(16, json.dumps(payload).encode(),
                 self.cipher_suite['sha']['size'])).decode()
-        self.nounces += [nounce]
+        self.nonces += [nonce]
         self.number_of_hash_derivations += 1
 
         # Derive AES key and cipher payload
@@ -85,24 +89,26 @@ class ClientSecure:
                            + encryptor.finalize()
 
         # Sign payload with CC authentication public key
-        message_payload = json.dumps({
+        message_payload = {
             'message': base64.b64encode(ciphered_payload).decode(),
-            'nounce': nounce,
+            'nonce': nonce,
             'secdata': {
                 'dhpubvalue': serialize_key(self.pub_value),
                 'salt': base64.b64encode(salt).decode(),
                 'iv': base64.b64encode(aes_iv).decode(),
                 'index': self.number_of_hash_derivations
             }
-        }).encode()
+        }
 
-        signature = cc.sign(message_payload, self.cc_pin)
+        signature = self.cc_sign_json(message_payload)
+        sent_payload = base64.b64encode(
+            json.dumps(message_payload).encode()).decode()
 
         # Build message
         message = {
             'type': 'secure',
-            'payload': base64.b64encode(message_payload).decode(),
-            'signature': base64.b64encode(signature).decode(),
+            'payload': sent_payload,
+            'signature': signature,
             'certificate': serialize_certificate(self.cc_cert),
             'cipher_spec': self.cipher_spec
         }
@@ -148,12 +154,12 @@ class ClientSecure:
                 base64.b64decode(message['payload'].encode()))
 
             # Check if it corresponds to a previously sent message
-            if not message['payload']['nounce'] in self.nounces:
+            if not message['payload']['nonce'] in self.nonces:
                 deciphered_payload = \
                     {'error': "Message doesn't match a previously sent message"}
 
         if deciphered_payload is None:
-            self.nounces.remove(message['payload']['nounce'])
+            self.nonces.remove(message['payload']['nonce'])
 
             # Derive AES key and decipher payload
             salt_idx = self.number_of_hash_derivations - 1
@@ -211,14 +217,36 @@ class ClientSecure:
     def uncapsulate_resource_message(self, resource_payload):
         # Save user public values, certificate and cipher_spec
         for user in resource_payload['result']:
+            # Verify signature and certificate validity
+            cipher_suite = get_cipher_suite(user['secdata']['cipher_spec'])
+
+            user_cert = deserialize_certificate(user['secdata']['cccertificate'])
+            if not self.certificates.validate_cert(user_cert):
+                logger.log(logging.DEBUG, "Invalid certificate; "
+                                          "dropping user info")
+                continue
+
+            try:
+                rsa_verify(
+                    user_cert.get_pubkey().to_cryptography_key(),
+                    base64.b64decode(user['signature'].encode()),
+                    json.dumps(user['secdata']).encode(),
+                    cipher_suite['rsa']['sign']['cc']['sha'],
+                    cipher_suite['rsa']['sign']['cc']['padding']
+                )
+            except InvalidSignature:
+                logger.log(logging.DEBUG, "Invalid signature; "
+                                          "dropping user info")
+                continue
+
             self.user_resources[user['id']] = {
-                'pub_key': deserialize_key(user['rsapubkey']),
-                'cc_pub_key': deserialize_key(user['ccpubkey']),
-                'certificate': deserialize_certificate(user['cccertificate']),
-                'cipher_spec': get_cipher_suite(user['cipher_spec'])
+                'pub_key': deserialize_key(user['secdata']['rsapubkey']),
+                'cc_pub_key': user_cert.get_pubkey().to_cryptography_key(),
+                'certificate': user_cert,
+                'cipher_suite': cipher_suite
             }
 
-    def cipher_message_to_user(self, message, peer_rsa_pubkey=None, nounce=None,
+    def cipher_message_to_user(self, message, peer_rsa_pubkey=None, nonce=None,
                                cipher_suite=None):
 
         if cipher_suite is None:
@@ -236,16 +264,16 @@ class ClientSecure:
         if peer_rsa_pubkey is None:
             peer_rsa_pubkey = self.public_key
 
-        # Generate nounce to verify message readings
-        if nounce is None:
-            nounce = get_nounce(16, message.encode(),
+        # Generate nonce to verify message readings
+        if nonce is None:
+            nonce = get_nonce(16, message.encode(),
                                 cipher_suite['sha']['size'])
 
-        # Cipher nounce and AES key and IV
-        nounce_aes_iv_key = aes_iv + aes_key + nounce
-        ciphered_nounce_aes_iv_key = rsa_cipher(
+        # Cipher nonce and AES key and IV
+        nonce_aes_iv_key = aes_iv + aes_key + nonce
+        ciphered_nonce_aes_iv_key = rsa_cipher(
             peer_rsa_pubkey,
-            nounce_aes_iv_key,
+            nonce_aes_iv_key,
             cipher_suite['sha']['size'],
             cipher_suite['rsa']['cipher']['padding']
         )
@@ -253,8 +281,8 @@ class ClientSecure:
         payload = {
             'payload': {
                 'message': base64.b64encode(ciphered_message).decode(),
-                'nounce_key_iv':
-                    base64.b64encode(ciphered_nounce_aes_iv_key).decode()
+                'nonce_key_iv':
+                    base64.b64encode(ciphered_nonce_aes_iv_key).decode()
             },
             'signature': None,
             'cipher_spec': cipher_suite
@@ -264,7 +292,7 @@ class ClientSecure:
         payload['signature'] = base64.b64encode(cc.sign(
             json.dumps(payload['payload']).encode(), self.cc_pin)).decode()
 
-        return base64.b64encode(json.dumps(payload).encode()).decode(), nounce
+        return base64.b64encode(json.dumps(payload).encode()).decode(), nonce
 
     def decipher_message_from_user(self, payload, peer_certificate=None):
         deciphered_message = None
@@ -297,24 +325,24 @@ class ClientSecure:
                                           "droping message")
                 deciphered_message = {'error': 'Invalid message signature'}
 
-        nounce = None
+        nonce = None
         if deciphered_message is None:
-            # Decipher nounce and AES key and IV
-            nounce_aes_iv_key = rsa_decipher(
+            # Decipher nonce and AES key and IV
+            nonce_aes_iv_key = rsa_decipher(
                 self.private_key,
-                base64.b64decode(payload['payload']['nounce_key_iv'].encode()),
+                base64.b64decode(payload['payload']['nonce_key_iv'].encode()),
                 cipher_suite['sha']['size'],
                 cipher_suite['rsa']['cipher']['padding']
             )
 
             # If the user can't decrypt, return error message
-            if isinstance(nounce_aes_iv_key, dict) \
-                    and 'error' in nounce_aes_iv_key:
-                return nounce_aes_iv_key, nounce, cipher_suite
+            if isinstance(nonce_aes_iv_key, dict) \
+                    and 'error' in nonce_aes_iv_key:
+                return nonce_aes_iv_key, nonce, cipher_suite
 
-            aes_iv = nounce_aes_iv_key[0:16]
-            aes_key = nounce_aes_iv_key[16:16+cipher_suite['aes']['key_size']]
-            nounce = nounce_aes_iv_key[16+cipher_suite['aes']['key_size']:]
+            aes_iv = nonce_aes_iv_key[0:16]
+            aes_key = nonce_aes_iv_key[16:16+cipher_suite['aes']['key_size']]
+            nonce = nonce_aes_iv_key[16+cipher_suite['aes']['key_size']:]
 
             # Decipher payload
             aes_cipher, aes_iv = generate_aes_cipher(
@@ -326,16 +354,16 @@ class ClientSecure:
                                  + decryptor.finalize()
             deciphered_message = deciphered_message.decode()
 
-        return deciphered_message, nounce, cipher_suite
+        return deciphered_message, nonce, cipher_suite
 
-    def generate_secure_receipt(self, message, nounce,
+    def generate_secure_receipt(self, message, nonce,
                                 peer_rsa_pubkey, cipher_suite):
         # Generate receipt from cleartext message and timestamp
         message_digest = base64.b64encode(digest_payload(
             message, cipher_suite['sha']['size'])).decode()
 
         receipt = {
-            'nounce': base64.b64encode(nounce).decode(),
+            'nonce': base64.b64encode(nonce).decode(),
             'hashed_timestamp_message': base64.b64encode(digest_payload(
                 message_digest + str(time.time()),
                 cipher_suite['sha']['size'])).decode(),
@@ -356,7 +384,7 @@ class ClientSecure:
         ciphered_receipt = encryptor.update(json.dumps(receipt).encode()) + \
                            encryptor.finalize()
 
-        # Cipher nounce and AES key and IV
+        # Cipher nonce and AES key and IV
         aes_iv_key = aes_iv + aes_key
         ciphered_aes_iv_key = rsa_cipher(
             peer_rsa_pubkey,
@@ -429,7 +457,7 @@ class ClientSecure:
 
     def verify_secure_receipts(self, result, peer_certificate):
         # Decipher original sent message
-        deciphered_message, nounce, cipher_suite = \
+        deciphered_message, nonce, cipher_suite = \
             self.decipher_message_from_user(result['msg'])
 
         to_rtn = {'error': 'Cannot decipher message nor receipts'} \
@@ -462,11 +490,11 @@ class ClientSecure:
                 if 'error' in deciphered_receipt:
                     receipt['receipt'] = deciphered_receipt
                 else:
-                    receipt_nounce = base64.b64decode(
-                        deciphered_receipt['nounce'].encode())
+                    receipt_nonce = base64.b64decode(
+                        deciphered_receipt['nonce'].encode())
 
-                    # Validate nounce, actually proves that the message was read
-                    if nounce == receipt_nounce:
+                    # Validate nonce, actually proves that the message was read
+                    if nonce == receipt_nonce:
                         receipt['receipt'] = {
                             'hash': deciphered_receipt[
                                 'hashed_timestamp_message'],
@@ -474,7 +502,7 @@ class ClientSecure:
                         }
                     else:
                         receipt['receipt'] = \
-                            {'error': 'Invalid nounce; invalid receipt'}
+                            {'error': 'Invalid nonce; invalid receipt'}
 
                 to_rtn['receipts'] += [receipt]
 

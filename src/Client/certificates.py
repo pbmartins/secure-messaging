@@ -3,7 +3,7 @@ from lib import *
 from OpenSSL import crypto
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509 import oid, extensions
-from datetime import datetime
+from datetime import datetime, timedelta
 from subprocess import check_output, DEVNULL
 import wget
 import os
@@ -113,6 +113,7 @@ class X509Certificates:
     def __init__(self):
         self.crls = {}
         self.certs = {}
+        self.valid_certs = {}
 
         X509Certificates.create_folders()
 
@@ -235,6 +236,15 @@ class X509Certificates:
 
         c = self.get_user_cert(cert_id, cert)
 
+        # Verify first the cache
+        if cert_id in self.valid_certs \
+                and self.valid_certs[cert_id]['serial'] == \
+                        cert.get_serial_number() \
+                and self.valid_certs[cert_id]['date'] \
+                        + timedelta(days=1) > datetime.today():
+            logger.log(logging.DEBUG, "[Cache] Valid certificate: %r" % cert_id)
+            return True
+
         # Check if it has extension KeyUsage with digital signature
         try:
             ext = cert.to_cryptography().extensions.get_extension_for_oid(
@@ -289,9 +299,21 @@ class X509Certificates:
 
             # If it gets here, it means it's valid
             logger.log(logging.DEBUG, "Valid certificate: %r" % cert_id)
+
+            # Update cache
+            self.valid_certs[cert_id] = {
+                'serial': cert.get_serial_number(),
+                'date': datetime.today()
+            }
+
             return True
 
         except Exception as e:
             logger.log(logging.DEBUG, "Invalid certificate: %r" % cert_id)
+
+            # Remove from cache
+            if cert_id in self.valid_certs:
+                del self.valid_certs[cert_id]
+
             return False
 
