@@ -410,7 +410,7 @@ class Client:
             print(colored("Message Sender ID: %d" % sender_id, 'green'))
 
             # Decipher message
-            message, nonce, cipher_suite = \
+            src, dst, message, nonce, cipher_suite = \
                 self.secure.decipher_message_from_user(
                     data['result'][1],
                     self.secure.user_resources[sender_id]['certificate']
@@ -429,13 +429,15 @@ class Client:
             # Send receipt
             self.receipt_message(
                 payload['msg'],
+                src,
+                dst,
                 message,
                 nonce,
                 int(data['result'][0]),
                 self.secure.user_resources[sender_id]['cipher_suite']
             )
 
-    def receipt_message(self, message_id, message, nonce,
+    def receipt_message(self, message_id, src, dst, message, nonce,
                         sender_id, cipher_suite):
 
         # Get receiver public key and certificate
@@ -452,6 +454,8 @@ class Client:
             'id': self.user_id,
             'msg': message_id,
             'receipt': self.secure.generate_secure_receipt(
+                src,
+                dst,
                 message,
                 nonce,
                 self.secure.user_resources[sender_id]['pub_key'],
@@ -498,29 +502,54 @@ class Client:
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
-            if len(data['result']['receipts']):
-                # Get receiver public key and certificate
-                dest_id = int(data['result']['receipts'][0]['id'])
-                if not self.get_resources([dest_id], data['resources']) \
-                        or dest_id not in self.secure.user_resources:
-                    print(colored("ERROR: Receipt sender"
-                                  " does not have valid info", 'red'))
-                    return
+            # Decipher original sent message from receipt box
+            src_id, dst_id, deciphered_message, nonce, cipher_suite = \
+                self.secure.decipher_message_from_user(data['result']['msg'])
 
-                peer_cert = self.secure.user_resources[dest_id]['certificate']
-            else:
-                peer_cert = None
+            deciphered_message = base64.b64decode(
+                deciphered_message.encode()).decode('utf-8')
 
-            info = self.secure.verify_secure_receipts(data['result'], peer_cert)
-
-            if 'error' in info:
-                print(colored("ERROR: " + info['error'], 'red'))
+            if 'error' in deciphered_message:
+                logger.log(logging.DEBUG, "Error deciphering message; "
+                                          "dropping message")
+                print(colored("ERROR: Cannot decipher message nor receipts",
+                              'red'))
                 return
 
-            msg = base64.b64decode(info['msg'].encode()).decode('utf-8')
+            # Get receiver public key and certificate
+            if not self.get_resources([dst_id], data['resources']) \
+                    or dst_id not in self.secure.user_resources:
+                logger.log(logging.DEBUG, "Cannot obtain receiver info; "
+                                          "dropping message")
+                print(colored(
+                    "ERROR: Receipt receiver does not have valid info", 'red'))
+                return
+
+            peer_cert = self.secure.user_resources[dst_id]['certificate']
+            if peer_cert is None \
+                    or not self.secure.certificates.validate_cert(peer_cert):
+                logger.log(logging.DEBUG, "Invalid certificate; "
+                                          "dropping message")
+                print(colored("ERROR: Invalid peer certificate", 'red'))
+
+            receipts = self.secure.verify_secure_receipts(
+                src_id,
+                dst_id,
+                deciphered_message,
+                nonce,
+                cipher_suite,
+                peer_cert,
+                data['result']['receipts']
+            )
+
+            if 'error' in receipts:
+                print(colored("ERROR: " + receipts['error'], 'red'))
+                return
+
+            msg = deciphered_message
             print(colored("Message:\n" + msg, 'green'))
             print(colored("\nAll receipts: ", 'green'))
-            for receipt in info['receipts']:
+            for receipt in receipts:
                 print(colored("\tDate: " +
                               time.ctime(float(receipt['date']) / 1000), 'green'))
                 print(colored(
@@ -530,8 +559,8 @@ class Client:
                     print(colored("\tERROR: " +
                                   receipt['receipt']['error'], 'red'))
                 else:
-                    print(colored("\tHash(message|timestamp|nonce): " +
-                                  receipt['receipt']['hash'], 'green'))
+                    print(colored("\tSignature(src|dst|message|timestamp|nonce): " +
+                                  receipt['receipt']['signature'], 'green'))
                     print(colored("\tTimestamp: " +
                                   receipt['receipt']['timestamp'], 'green'))
                 print("")
