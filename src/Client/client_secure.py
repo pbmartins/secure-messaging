@@ -241,13 +241,19 @@ class ClientSecure:
             'ids': ids
         }
 
+        logger.log(logging.DEBUG, "RESOURCE MESSAGE SENT: %r" % resource_payload)
+
         return resource_payload
 
     def uncapsulate_resource_message(self, resource_payload):
+        logger.log(logging.DEBUG,
+                   "RESOURCE MESSAGE RECEIVED: %r" % resource_payload)
+
         # Save user public values, certificate and cipher_spec
         for user in resource_payload['result']:
             secdata = json.loads(base64.b64decode(
                 user['secdata'].encode()).decode())
+
             # Verify signature and certificate validity
             cipher_suite = get_cipher_suite(secdata['cipher_spec'])
 
@@ -310,21 +316,22 @@ class ClientSecure:
             cipher_suite['rsa']['cipher']['padding']
         )
 
-        payload = {
-            'payload': {
-                'src': src_id,
-                'dst': dst_id,
-                'message': base64.b64encode(ciphered_message).decode(),
-                'nonce_key_iv':
-                    base64.b64encode(ciphered_nonce_aes_iv_key).decode()
-            },
-            'signature': None,
-            'cipher_spec': cipher_suite
-        }
+        message_payload = base64.b64encode(json.dumps({
+            'src': src_id,
+            'dst': dst_id,
+            'message': base64.b64encode(ciphered_message).decode(),
+            'nonce_key_iv':
+                base64.b64encode(ciphered_nonce_aes_iv_key).decode()
+        }).encode())
 
         # Sign payload
-        payload['signature'] = base64.b64encode(cc.sign(
-            json.dumps(payload['payload']).encode(), self.cc_pin)).decode()
+        signature = base64.b64encode(cc.sign(message_payload, self.cc_pin))
+
+        payload = {
+            'payload': message_payload.decode(),
+            'signature': signature.decode(),
+            'cipher_spec': cipher_suite
+        }
 
         return base64.b64encode(json.dumps(payload).encode()).decode(), nonce
 
@@ -349,8 +356,8 @@ class ClientSecure:
             try:
                 rsa_verify(
                     peer_certificate.get_pubkey().to_cryptography_key(),
-                    base64.b64decode(payload['signature']),
-                    json.dumps(payload['payload']).encode(),
+                    base64.b64decode(payload['signature'].encode()),
+                    payload['payload'].encode(),
                     cipher_suite['rsa']['sign']['cc']['sha'],
                     cipher_suite['rsa']['sign']['cc']['padding']
                 )
@@ -361,10 +368,13 @@ class ClientSecure:
 
         nonce = None
         if deciphered_message is None:
+            message_payload = json.loads(base64.b64decode(
+                payload['payload'].encode()).decode())
+
             # Decipher nonce and AES key and IV
             nonce_aes_iv_key = rsa_decipher(
                 self.private_key,
-                base64.b64decode(payload['payload']['nonce_key_iv'].encode()),
+                base64.b64decode(message_payload['nonce_key_iv'].encode()),
                 cipher_suite['sha']['size'],
                 cipher_suite['rsa']['cipher']['padding']
             )
@@ -384,7 +394,7 @@ class ClientSecure:
 
             decryptor = aes_cipher.decryptor()
             deciphered_message = decryptor.update(
-                base64.b64decode(payload['payload']['message'].encode()))\
+                base64.b64decode(message_payload['message'].encode())) \
                                  + decryptor.finalize()
             deciphered_message = deciphered_message.decode()
 

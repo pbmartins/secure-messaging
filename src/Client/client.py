@@ -354,9 +354,10 @@ class Client:
         # Cipher sender and receiver message
         destination = self.secure.user_resources[payload['dst']]
         payload['msg'], nonce = self.secure.cipher_message_to_user(
-            msg, destination['pub_key'], cipher_suite=destination['cipher_suite'])
+            msg, self.user_id, payload['dst'], destination['pub_key'],
+            cipher_suite=destination['cipher_suite'])
         payload['copy'], nonce_none = self.secure.cipher_message_to_user(
-            msg, self.user_id, payload['dst'], nonce)
+            msg, self.user_id, payload['dst'], nonce=nonce)
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
