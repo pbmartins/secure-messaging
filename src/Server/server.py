@@ -124,6 +124,8 @@ class Server:
                         if sec_req['type'] == 'insecure' \
                         else client.secure.uncapsulate_secure_message(sec_req)
 
+                    print("REQ:", req)
+
                     Server.server_actions.handleRequest(
                         s, req, self.clients[s], nonce)
             else:

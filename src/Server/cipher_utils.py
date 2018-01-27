@@ -109,32 +109,6 @@ def digest_payload(payload, hash_algorithm):
     return hashed_payload
 
 
-def generate_mac(key, payload, hash_algorithm):
-    assert payload is not None
-
-    h = get_hash_algorithm(hash_algorithm)
-    payload = payload if isinstance(payload, bytes) else payload.encode()
-
-    hashmac = hmac.HMAC(key, h, backend=default_backend())
-    hashmac.update(payload)
-    return hashmac.finalize()
-
-
-def verify_mac(key, payload, signature, hash_algorithm):
-    assert payload is not None
-
-    h = get_hash_algorithm(hash_algorithm)
-    payload = payload if isinstance(payload, bytes) else payload.encode()
-
-    hashmac = hmac.HMAC(key, h, backend=default_backend())
-    hashmac.update(payload)
-    try:
-        hashmac.verify(signature)
-        return True
-    except InvalidSignature:
-        return False
-
-
 """
     Key exchange operations
 """
@@ -244,6 +218,39 @@ def rsa_decipher(private_key, ciphertext, hash_algorithm, padding_algorithm):
     except ValueError:
         payload = {'error': 'Cannot decipher ciphertext'}
     return payload
+
+
+"""
+    MAC utilities
+"""
+
+
+def generate_mac(key, payload, hash_algorithm):
+    assert payload is not None
+
+    h = get_hash_algorithm(hash_algorithm)
+    key = key if isinstance(key, bytes) else key.encode()
+    payload = payload if isinstance(payload, bytes) else payload.encode()
+
+    hashmac = hmac.HMAC(key, h, backend=default_backend())
+    hashmac.update(payload)
+    return hashmac.finalize()
+
+
+def verify_mac(key, payload, signature, hash_algorithm):
+    assert payload is not None
+
+    h = get_hash_algorithm(hash_algorithm)
+    key = key if isinstance(key, bytes) else key.encode()
+    payload = payload if isinstance(payload, bytes) else payload.encode()
+
+    hashmac = hmac.HMAC(key, h, backend=default_backend())
+    hashmac.update(payload)
+    try:
+        hashmac.verify(signature)
+        return True
+    except InvalidSignature:
+        return False
 
 
 """

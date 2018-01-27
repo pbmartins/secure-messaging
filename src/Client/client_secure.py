@@ -29,14 +29,14 @@ class ClientSecure:
         self.peer_salt = None
         self.private_key = private_key
         self.public_key = public_key
+        self.prev_mac = None
 
         self.cc_pin = pin
 
         self.user_resources = {}
 
-    def cc_sign_json(self, payload):
-        return base64.b64encode(cc.sign(
-            json.dumps(payload).encode(), self.cc_pin)).decode()
+    def cc_sign(self, payload):
+        return base64.b64encode(cc.sign(payload, self.cc_pin)).decode()
 
     def encapsulate_insecure_message(self):
         self.priv_value, self.pub_value = generate_ecdh_keypair()
@@ -45,17 +45,27 @@ class ClientSecure:
         nonce = base64.b64encode(os.urandom(16)).decode()
         self.nonces += [nonce]
 
-        message = {
-            'type': 'insecure',
+        payload = base64.b64encode(json.dumps({
             'uuid': self.uuid,
             'secdata': {
                 'dhpubvalue': serialize_key(self.pub_value),
                 'salt': base64.b64encode(salt).decode(),
                 'index': self.number_of_hash_derivations
             },
-            'nonce': nonce,
+            'nonce': nonce
+        }).encode())
+
+        # Sign payload to authenticate client in the server
+        signature = base64.b64encode(cc.sign(payload, self.cc_pin)).decode()
+
+        message = {
+            'type': 'insecure',
+            'payload': payload.decode(),
+            'signature': signature,
+            'certificate': serialize_certificate(self.cc_cert),
             'cipher_spec': self.cipher_spec
         }
+
         logger.log(logging.DEBUG, "INSECURE MESSAGE SENT: %r" % message)
 
         return message
@@ -84,12 +94,11 @@ class ClientSecure:
             aes_key, self.cipher_suite['aes']['mode'])
 
         encryptor = aes_cipher.encryptor()
-
         ciphered_payload = encryptor.update(json.dumps(payload).encode())\
                            + encryptor.finalize()
 
-        # Sign payload with CC authentication public key
-        message_payload = {
+        # Generate payload
+        message_payload = base64.b64encode(json.dumps({
             'message': base64.b64encode(ciphered_payload).decode(),
             'nonce': nonce,
             'secdata': {
@@ -98,18 +107,22 @@ class ClientSecure:
                 'iv': base64.b64encode(aes_iv).decode(),
                 'index': self.number_of_hash_derivations
             }
-        }
+        }).encode())
 
-        signature = self.cc_sign_json(message_payload)
-        sent_payload = base64.b64encode(
-            json.dumps(message_payload).encode()).decode()
+        # Generate MAC
+        mac = base64.b64encode(generate_mac(
+            aes_key,
+            message_payload + self.prev_mac,
+            self.cipher_suite['sha']['size']
+        ))
+
+        self.prev_mac = mac
 
         # Build message
         message = {
             'type': 'secure',
-            'payload': sent_payload,
-            'signature': signature,
-            'certificate': serialize_certificate(self.cc_cert),
+            'payload': message_payload.decode(),
+            'mac': mac.decode(),
             'cipher_spec': self.cipher_spec
         }
 
@@ -126,47 +139,50 @@ class ClientSecure:
 
         assert message['cipher_spec'] == self.cipher_spec
 
-        deciphered_payload = None
+        return_payload = None
+        payload = None
+        aes_key = None
 
-        # Verify signature and certificate validity
-        peer_certificate = deserialize_certificate(message['certificate'])
-        if not self.certificates.validate_cert(peer_certificate):
-            logger.log(logging.DEBUG, "Invalid certificate; "
-                                      "droping message")
-            deciphered_payload = {'error': 'Invalid server certificate'}
+        if self.prev_mac is None:
+            # Verify signature and certificate validity
+            peer_certificate = deserialize_certificate(message['certificate'])
+            if not self.certificates.validate_cert(peer_certificate):
+                logger.log(logging.DEBUG, "Invalid certificate; "
+                                          "dropping message")
+                return_payload = {'error': 'Invalid server certificate'}
 
-        if deciphered_payload is None:
-            try:
-                rsa_verify(
-                    peer_certificate.get_pubkey().to_cryptography_key(),
-                    base64.b64decode(message['signature'].encode()),
-                    base64.b64decode(message['payload'].encode()),
-                    self.cipher_suite['rsa']['sign']['server']['sha'],
-                    self.cipher_suite['rsa']['sign']['server']['padding']
-                )
-            except InvalidSignature:
-                logger.log(logging.DEBUG, "Invalid signature; "
-                                          "droping message")
-                deciphered_payload = {'error': 'Invalid message signature'}
+            if return_payload is None:
+                try:
+                    rsa_verify(
+                        peer_certificate.get_pubkey().to_cryptography_key(),
+                        base64.b64decode(message['signature'].encode()),
+                        message['payload'].encode(),
+                        self.cipher_suite['rsa']['sign']['server']['sha'],
+                        self.cipher_suite['rsa']['sign']['server']['padding']
+                    )
+                except InvalidSignature:
+                    logger.log(logging.DEBUG, "Invalid signature; "
+                                              "dropping message")
+                    return_payload = {'error': 'Invalid message signature'}
 
-        if deciphered_payload is None:
-            message['payload'] = json.loads(
-                base64.b64decode(message['payload'].encode()))
+        if return_payload is None:
+            payload = json.loads(
+                base64.b64decode(message['payload'].encode()).decode())
 
             # Check if it corresponds to a previously sent message
-            if not message['payload']['nonce'] in self.nonces:
-                deciphered_payload = \
+            if not payload['nonce'] in self.nonces:
+                return_payload = \
                     {'error': "Message doesn't match a previously sent message"}
 
-        if deciphered_payload is None:
-            self.nonces.remove(message['payload']['nonce'])
+        if return_payload is None:
+            self.nonces.remove(payload['nonce'])
 
             # Derive AES key and decipher payload
             salt_idx = self.number_of_hash_derivations - 1
             self.peer_pub_value = deserialize_key(
-                message['payload']['secdata']['dhpubvalue'])
+                payload['secdata']['dhpubvalue'])
             self.peer_salt = base64.b64decode(
-                message['payload']['secdata']['salt'].encode())
+                payload['secdata']['salt'].encode())
 
             aes_key = derive_key_from_ecdh(
                 self.priv_value,
@@ -178,24 +194,37 @@ class ClientSecure:
                 self.number_of_hash_derivations,
             )
 
+            # Verify MAC to make sure of message integrity
+            mac_message = message['payload'].encode() if self.prev_mac is None \
+                else message['payload'].encode() + self.prev_mac
+
+            if not verify_mac(aes_key, mac_message,
+                              base64.b64decode(message['mac'].encode()),
+                              self.cipher_suite['sha']['size']):
+                return_payload = \
+                    {'error': "Invalid MAC; dropping message"}
+
+        if return_payload is None:
+            self.prev_mac = message['mac'].encode()
+
             aes_cipher, aes_iv = generate_aes_cipher(
                 aes_key,
                 self.cipher_suite['aes']['mode'],
-                base64.b64decode(message['payload']['secdata']['iv'].encode())
+                base64.b64decode(payload['secdata']['iv'].encode())
             )
 
             decryptor = aes_cipher.decryptor()
-            deciphered_payload = decryptor.update(base64.b64decode(
-                message['payload']['message'].encode())) + decryptor.finalize()
-            deciphered_payload = \
-                json.loads(json.loads(deciphered_payload.decode()))
+            return_payload = decryptor.update(base64.b64decode(
+                payload['message'].encode())) + decryptor.finalize()
+            return_payload = \
+                json.loads(json.loads(return_payload.decode()))
 
         # Derive new DH values
         self.priv_value, self.pub_value = generate_ecdh_keypair()
         self.number_of_hash_derivations = 0
         self.salt_list = []
 
-        return deciphered_payload
+        return return_payload
 
     def encapsulate_resource_message(self, ids):
         # Check if already exists user public infos
@@ -217,10 +246,12 @@ class ClientSecure:
     def uncapsulate_resource_message(self, resource_payload):
         # Save user public values, certificate and cipher_spec
         for user in resource_payload['result']:
+            secdata = json.loads(base64.b64decode(
+                user['secdata'].encode()).decode())
             # Verify signature and certificate validity
-            cipher_suite = get_cipher_suite(user['secdata']['cipher_spec'])
+            cipher_suite = get_cipher_suite(secdata['cipher_spec'])
 
-            user_cert = deserialize_certificate(user['secdata']['cccertificate'])
+            user_cert = deserialize_certificate(secdata['cccertificate'])
             if not self.certificates.validate_cert(user_cert):
                 logger.log(logging.DEBUG, "Invalid certificate; "
                                           "dropping user info")
@@ -230,7 +261,7 @@ class ClientSecure:
                 rsa_verify(
                     user_cert.get_pubkey().to_cryptography_key(),
                     base64.b64decode(user['signature'].encode()),
-                    json.dumps(user['secdata']).encode(),
+                    user['secdata'].encode(),
                     cipher_suite['rsa']['sign']['cc']['sha'],
                     cipher_suite['rsa']['sign']['cc']['padding']
                 )
@@ -240,13 +271,14 @@ class ClientSecure:
                 continue
 
             self.user_resources[user['id']] = {
-                'pub_key': deserialize_key(user['secdata']['rsapubkey']),
+                'pub_key': deserialize_key(secdata['rsapubkey']),
                 'cc_pub_key': user_cert.get_pubkey().to_cryptography_key(),
                 'certificate': user_cert,
                 'cipher_suite': cipher_suite
             }
 
-    def cipher_message_to_user(self, message, peer_rsa_pubkey=None, nonce=None,
+    def cipher_message_to_user(self, message, src_id, dst_id,
+                               peer_rsa_pubkey=None, nonce=None,
                                cipher_suite=None):
 
         if cipher_suite is None:
@@ -280,6 +312,8 @@ class ClientSecure:
 
         payload = {
             'payload': {
+                'src': src_id,
+                'dst': dst_id,
                 'message': base64.b64encode(ciphered_message).decode(),
                 'nonce_key_iv':
                     base64.b64encode(ciphered_nonce_aes_iv_key).decode()
@@ -303,7 +337,7 @@ class ClientSecure:
         # Verify signature and certificate validity
         if not self.certificates.validate_cert(peer_certificate):
             logger.log(logging.DEBUG, "Invalid certificate; "
-                                      "droping message")
+                                      "dropping message")
             deciphered_message = {'error': 'Invalid peer certificate'}
 
         # Decode payload
@@ -322,7 +356,7 @@ class ClientSecure:
                 )
             except InvalidSignature:
                 logger.log(logging.DEBUG, "Invalid signature; "
-                                          "droping message")
+                                          "dropping message")
                 deciphered_message = {'error': 'Invalid message signature'}
 
         nonce = None
@@ -468,7 +502,7 @@ class ClientSecure:
         if to_rtn is None and \
                 not self.certificates.validate_cert(peer_certificate):
             logger.log(logging.DEBUG, "Invalid certificate; "
-                                      "droping message")
+                                      "dropping message")
             to_rtn = {'error': 'Invalid peer certificate'}
 
         if to_rtn is None:

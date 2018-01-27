@@ -11,6 +11,8 @@ import wget
 import os
 import shutil
 import logging
+import json
+import base64
 
 
 # Only accepts OpenSSL X509 Objects
@@ -127,8 +129,8 @@ class X509Certificates:
     def import_user_certs(self, users):
         for uid in users:
             user = users[uid]
-            cc_cert = deserialize_certificate(
-                user['description']['secdata']['cccertificate'])
+            cc_cert = deserialize_certificate(json.loads(base64.b64decode(
+                user['description']['secdata'].encode()).decode())['cccertificate'])
             cert_id = X509Certificates.get_cert_id(cc_cert)
 
             # Validate saved certs in user description

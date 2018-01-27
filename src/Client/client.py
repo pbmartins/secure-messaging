@@ -184,6 +184,11 @@ class Client:
 
             logger.log(logging.DEBUG, "Secure session with server established")
 
+        # If user_id is None, it means auth went wrong, abort program
+        if self.user_id is None:
+            print(colored("Error authenticating client", 'red'))
+            sys.exit(1)
+
         print(colored("Your UserID: %d" % self.user_id, 'green'))
 
     def create_user(self, cipher_spec):
@@ -191,16 +196,16 @@ class Client:
         payload = {
             'type': 'create',
             'uuid': self.uuid,
-            'secdata': {
+            'secdata': base64.b64encode(json.dumps({
                 'rsapubkey': serialize_key(self.secure.public_key),
                 'cccertificate': serialize_certificate(self.cc_certificate),
                 'cipher_spec': cipher_spec
-            },
+            }).encode()).decode(),
             'signature': None
         }
 
         # Sign secdata
-        payload['signature'] = self.secure.cc_sign_json(payload['secdata'])
+        payload['signature'] = self.secure.cc_sign(payload['secdata'].encode())
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
@@ -350,8 +355,8 @@ class Client:
         destination = self.secure.user_resources[payload['dst']]
         payload['msg'], nonce = self.secure.cipher_message_to_user(
             msg, destination['pub_key'], cipher_suite=destination['cipher_suite'])
-        payload['copy'], nonce_none = \
-            self.secure.cipher_message_to_user(msg, None, nonce)
+        payload['copy'], nonce_none = self.secure.cipher_message_to_user(
+            msg, self.user_id, payload['dst'], nonce)
 
         data = self.send_payload(self.secure.encapsulate_secure_message(payload))
         data = self.secure.uncapsulate_secure_message(data)
