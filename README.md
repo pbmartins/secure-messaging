@@ -1,6 +1,6 @@
 # Secure messaging platform
 
-Para a correta execução da plataforma, primeiro é necessário garantirque se têm instalado Python3 (foi testado usando Python 3.6.4). 
+Para a correta execução da plataforma, primeiro é necessário garantir que se tem instalado Python3 (foi testado usando Python 3.6.4). 
 De seguida devem ser instaladas todas as bibliotecas usadas:
 ```bash
 $ pip3 install -r requirements.txt

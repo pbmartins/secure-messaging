@@ -147,7 +147,7 @@ class Client:
             # Initialize session with the server
             self.secure = ClientSecure(self.uuid, priv_key, pub_key,
                                        cipher_spec, cipher_suite, pin)
-            data = self.send_payload(self.secure.encapsulate_insecure_message())
+            data = self.send_payload(self.secure.encapsulate_init_message())
             message = self.secure.uncapsulate_secure_message(data)
 
             logger.log(logging.DEBUG, "Secure session with server established")
@@ -178,7 +178,7 @@ class Client:
 
             # Initialize session with the server
             self.secure = ClientSecure(self.uuid, priv_key, pub_key, pin=pin)
-            data = self.send_payload(self.secure.encapsulate_insecure_message())
+            data = self.send_payload(self.secure.encapsulate_init_message())
             message = self.secure.uncapsulate_secure_message(data)
             self.user_id = message['result']
 

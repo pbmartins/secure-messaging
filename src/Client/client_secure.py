@@ -38,7 +38,7 @@ class ClientSecure:
     def cc_sign(self, payload):
         return base64.b64encode(cc.sign(payload, self.cc_pin)).decode()
 
-    def encapsulate_insecure_message(self):
+    def encapsulate_init_message(self):
         self.priv_value, self.pub_value = generate_ecdh_keypair()
         salt = os.urandom(16)
         self.salt_list += [salt]
@@ -59,14 +59,14 @@ class ClientSecure:
         signature = base64.b64encode(cc.sign(payload, self.cc_pin)).decode()
 
         message = {
-            'type': 'insecure',
+            'type': 'init',
             'payload': payload.decode(),
             'signature': signature,
             'certificate': serialize_certificate(self.cc_cert),
             'cipher_spec': self.cipher_spec
         }
 
-        logger.log(logging.DEBUG, "INSECURE MESSAGE SENT: %r" % message)
+        logger.log(logging.DEBUG, "INIT MESSAGE SENT: %r" % message)
 
         return message
 
@@ -138,6 +138,13 @@ class ClientSecure:
             self.cipher_suite = get_cipher_suite(self.cipher_spec)
 
         assert message['cipher_spec'] == self.cipher_spec
+
+        # Check all payload fields
+        if 'payload' not in message or 'cipher_spec' not in message \
+                or 'mac' not in message:
+            logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN SECURE "
+                                      "MESSAGE: %r" % message)
+            return
 
         return_payload = None
         payload = None

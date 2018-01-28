@@ -30,8 +30,15 @@ class ServerSecure:
         self.registry = registry
         self.certs = certs
 
-    def uncapsulate_insecure_message(self, payload):
-        logger.log(logging.DEBUG, "INSECURE MESSAGE RECEIVED: %r" % payload)
+    def uncapsulate_init_message(self, payload):
+        logger.log(logging.DEBUG, "INIT MESSAGE RECEIVED: %r" % payload)
+
+        # Check all payload fields
+        if 'payload' not in payload or 'cipher_spec' not in payload \
+            or 'signature' not in payload or 'certificate' not in payload:
+            logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN INIT "
+                                      "MESSAGE: %r" % payload)
+            return
 
         sent_payload = json.loads(base64.b64decode(
             payload['payload'].encode()).decode())
@@ -165,6 +172,13 @@ class ServerSecure:
         logger.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
 
         assert message['cipher_spec'] == self.cipher_spec
+
+        # Check all payload fields
+        if 'payload' not in message or 'cipher_spec' not in message \
+                or 'mac' not in message:
+            logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN SECURE "
+                                      "MESSAGE: %r" % message)
+            return
 
         return_payload = None
         aes_key = None

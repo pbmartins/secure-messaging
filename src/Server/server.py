@@ -120,8 +120,8 @@ class Server:
 
                     # Uncapsulate payload based on its secure type
                     req, nonce = \
-                        client.secure.uncapsulate_insecure_message(sec_req) \
-                        if sec_req['type'] == 'insecure' \
+                        client.secure.uncapsulate_init_message(sec_req) \
+                        if sec_req['type'] == 'init' \
                         else client.secure.uncapsulate_secure_message(sec_req)
 
                     print("REQ:", req)
