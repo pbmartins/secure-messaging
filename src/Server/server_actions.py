@@ -228,6 +228,15 @@ class ServerActions:
             client.sendResult({"error": "wrong parameters"})
             return
 
+        if self.registry.getUser(client.secure.uuid).id != fromId:
+            logger.log(
+                logging.ERROR,
+                "Source id different from client id for \"recv\" message: "
+                + json.dumps(data)
+            )
+            client.sendResult({"error": "wrong parameters"})
+            return
+
         if not self.registry.messageExists(fromId, msg):
             logger.log(logging.ERROR,
                 "Unknown source msg for \"recv\" message: " + json.dumps(data))
@@ -238,12 +247,10 @@ class ServerActions:
         response = self.registry.recvMessage(fromId, msg)
         sender_id = int(response[0])
 
-        client.sendResult(
-            {
-                "result": response,
-                "resources": {'result': [self.get_user_resources(sender_id)]}
-            }
-        )
+        client.sendResult({
+            "result": response,
+            "resources": {'result': [self.get_user_resources(sender_id)]}
+        })
 
     def processReceipt(self, data, client):
         logger.log(logging.DEBUG, "%s" % json.dumps(data))
@@ -284,6 +291,15 @@ class ServerActions:
 
         fromId = int(data['id'])
         msg = str(data["msg"])
+
+        if self.registry.getUser(client.secure.uuid).id != fromId:
+            logger.log(
+                logging.ERROR,
+                "Source id different from client id for \"status\" message: "
+                + json.dumps(data)
+            )
+            client.sendResult({"error": "wrong parameters"})
+            return
 
         if not self.registry.copyExists(fromId, msg):
             logger.log(logging.ERROR,
