@@ -263,7 +263,7 @@ def get_cipher_suite(cipher_spec):
     aes = specs[1].split('_')
     rsa = specs[2].split('_')
     rsasign = specs[3].split('_')
-    hash = specs[4]
+    hash = specs[5]
 
     cipher_suite = {
         'aes': {

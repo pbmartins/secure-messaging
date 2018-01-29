@@ -47,12 +47,12 @@ class Client:
         self.bufin = reqs[-1]
         return reqs[:-1]
 
-    def sendResult(self, obj, nonce):
+    def sendResult(self, obj):
         """Send an object to this client.
         """
         try:
             self.bufout += json.dumps(self.secure.encapsulate_secure_message(
-                json.dumps(obj), nonce)) + "\n\n"
+                json.dumps(obj))) + "\n\n"
         except:
             # It should never happen! And not be reported to the client!
             logging.exception("Client.send(%s)" % self)

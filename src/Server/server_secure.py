@@ -23,6 +23,7 @@ class ServerSecure:
         self.peer_salt = None
         self.number_of_hash_derivations = None
         self.prev_mac = None
+        self.nonce = None
 
         self.private_key = certs.priv_key
         self.public_key = certs.pub_key
@@ -81,14 +82,15 @@ class ServerSecure:
             self.peer_salt = base64.b64decode(
                 sent_payload['secdata']['salt'].encode())
             self.number_of_hash_derivations = sent_payload['secdata']['index']
+            self.nonce = base64.b64decode(sent_payload['nonce'].encode())
         else:
             self.uuid = None
             self.cipher_spec = None
             self.cipher_suite = None
 
-        return {'type': 'init', 'uuid': self.uuid}, sent_payload['nonce']
+        return {'type': 'init', 'uuid': self.uuid}
 
-    def encapsulate_secure_message(self, payload, nonce):
+    def encapsulate_secure_message(self, payload):
         # Values used in key exchange
         self.salt = os.urandom(16)
         self.priv_value, self.pub_value = generate_ecdh_keypair()
@@ -113,7 +115,6 @@ class ServerSecure:
 
         message_payload = base64.b64encode(json.dumps({
             'message': base64.b64encode(ciphered_payload).decode(),
-            'nonce': nonce,
             'secdata': {
                 'dhpubvalue': serialize_key(self.pub_value),
                 'salt': base64.b64encode(self.salt).decode(),
@@ -121,8 +122,6 @@ class ServerSecure:
                 'index': self.number_of_hash_derivations
             }
         }).encode())
-
-        mac = None
 
         if self.prev_mac is None:
             # Sign payload with Server authentication public key
@@ -135,7 +134,10 @@ class ServerSecure:
 
             # Generate MAC
             mac = base64.b64encode(generate_mac(
-                aes_key, message_payload, self.cipher_suite['sha']['size']))
+                aes_key,
+                message_payload + self.nonce,
+                self.cipher_suite['sha']['size']
+            ))
 
             # Build message
             message = {
@@ -186,8 +188,6 @@ class ServerSecure:
         payload = json.loads(base64.b64decode(
             message['payload'].encode()).decode())
 
-        nonce = payload['nonce']
-
         if return_payload is None:
             # Derive AES key and decipher payload
             self.number_of_hash_derivations = payload['secdata']['index']
@@ -233,4 +233,4 @@ class ServerSecure:
                     payload['message'].encode())) + decryptor.finalize()
                 return_payload = json.loads(return_payload.decode())
 
-        return return_payload, nonce
+        return return_payload

@@ -19,7 +19,7 @@ class ClientSecure:
         self.cipher_suite = cipher_suite
         self.number_of_hash_derivations = 1
         self.salt_list = []
-        self.nonces = []
+        self.nonce = None
         self.cc_cert = cc.get_pub_key_certificate()
         self.certificates = certificates.X509Certificates()
 
@@ -42,8 +42,7 @@ class ClientSecure:
         self.priv_value, self.pub_value = generate_ecdh_keypair()
         salt = os.urandom(16)
         self.salt_list += [salt]
-        nonce = base64.b64encode(os.urandom(16)).decode()
-        self.nonces += [nonce]
+        self.nonce = os.urandom(16)
 
         payload = base64.b64encode(json.dumps({
             'uuid': self.uuid,
@@ -52,7 +51,7 @@ class ClientSecure:
                 'salt': base64.b64encode(salt).decode(),
                 'index': self.number_of_hash_derivations
             },
-            'nonce': nonce
+            'nonce': base64.b64encode(self.nonce).decode(),
         }).encode())
 
         # Sign payload to authenticate client in the server
@@ -74,9 +73,6 @@ class ClientSecure:
         # Values used in key exchange
         salt = os.urandom(16)
         self.salt_list += [salt]
-        nonce = base64.b64encode(get_nonce(16, json.dumps(payload).encode(),
-                self.cipher_suite['sha']['size'])).decode()
-        self.nonces += [nonce]
         self.number_of_hash_derivations += 1
 
         # Derive AES key and cipher payload
@@ -100,7 +96,6 @@ class ClientSecure:
         # Generate payload
         message_payload = base64.b64encode(json.dumps({
             'message': base64.b64encode(ciphered_payload).decode(),
-            'nonce': nonce,
             'secdata': {
                 'dhpubvalue': serialize_key(self.pub_value),
                 'salt': base64.b64encode(salt).decode(),
@@ -150,6 +145,11 @@ class ClientSecure:
         payload = None
         aes_key = None
 
+        if self.prev_mac is None and self.nonce is None:
+            # Check if it corresponds to a previously sent message
+            return_payload = \
+                {'error': "Message doesn't match a previously sent message"}
+
         if self.prev_mac is None:
             # Verify signature and certificate validity
             peer_certificate = deserialize_certificate(message['certificate'])
@@ -176,14 +176,6 @@ class ClientSecure:
             payload = json.loads(
                 base64.b64decode(message['payload'].encode()).decode())
 
-            # Check if it corresponds to a previously sent message
-            if not payload['nonce'] in self.nonces:
-                return_payload = \
-                    {'error': "Message doesn't match a previously sent message"}
-
-        if return_payload is None:
-            self.nonces.remove(payload['nonce'])
-
             # Derive AES key and decipher payload
             salt_idx = self.number_of_hash_derivations - 1
             self.peer_pub_value = deserialize_key(
@@ -202,7 +194,8 @@ class ClientSecure:
             )
 
             # Verify MAC to make sure of message integrity
-            mac_message = message['payload'].encode() if self.prev_mac is None \
+            mac_message = message['payload'].encode() + self.nonce \
+                if self.prev_mac is None \
                 else message['payload'].encode() + self.prev_mac
 
             if not verify_mac(aes_key, mac_message,
@@ -212,6 +205,7 @@ class ClientSecure:
                     {'error': "Invalid MAC; dropping message"}
 
         if return_payload is None:
+            self.nonce = None
             self.prev_mac = message['mac'].encode()
 
             aes_cipher, aes_iv = generate_aes_cipher(

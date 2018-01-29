@@ -119,15 +119,12 @@ class Server:
                     sec_req = json.loads(s_req)
 
                     # Uncapsulate payload based on its secure type
-                    req, nonce = \
-                        client.secure.uncapsulate_init_message(sec_req) \
+                    req = client.secure.uncapsulate_init_message(sec_req) \
                         if sec_req['type'] == 'init' \
                         else client.secure.uncapsulate_secure_message(sec_req)
 
-                    print("REQ:", req)
-
                     Server.server_actions.handleRequest(
-                        s, req, self.clients[s], nonce)
+                        s, req, self.clients[s])
             else:
                 self.delClient(s)
 
