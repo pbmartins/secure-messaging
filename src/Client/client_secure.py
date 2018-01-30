@@ -305,7 +305,7 @@ class ClientSecure:
 
         # Generate nonce to verify message readings
         if nonce is None:
-            nonce = get_nonce(16, message.encode(), cipher_suite['sha']['size'])
+            nonce = os.urandom(16)
 
         # Cipher nonce and AES key and IV
         nonce_aes_iv_key = aes_iv + aes_key + nonce
@@ -480,7 +480,7 @@ class ClientSecure:
         return deciphered_receipt
 
     def verify_secure_receipts(self, src_id, dst_id, deciphered_message,
-                               nonce, cipher_suite, peer_certificate, receipts):
+                               nonce, peer_certificate, receipts):
 
         rtn_receipts = []
         for r in receipts:

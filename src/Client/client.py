@@ -537,7 +537,6 @@ class Client:
                 dst_id,
                 deciphered_message,
                 nonce,
-                cipher_suite,
                 peer_cert,
                 data['result']['receipts']
             )
