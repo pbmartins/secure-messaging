@@ -213,6 +213,12 @@ class Client:
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
+            if 'result' not in data or not isinstance(data['result'], int):
+                print(colored("An error has occurred, aborting.", 'red'))
+                logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN "
+                                          "CREATE MESSAGE: %r" % data)
+                return
+
             self.user_id = data['result']
             logger.log(logging.DEBUG, "User account created")
             print(colored("User account succesfully created.", 'green'))
@@ -246,9 +252,10 @@ class Client:
         else:
             print(colored("User UUID(s): ", 'green'))
             for user in data['result']:
-                print(colored(str.format("\tID: {:d} - UUID: {:d}",
-                                         user['id'], user['description']['uuid']),
-                              'green'))
+                print(colored(
+                    str.format("\tID: {:d} - UUID: {:d}",
+                               user['id'], user['description']['uuid']),
+                    'green'))
 
     def list_all_new_messages(self):
         payload = {
@@ -304,6 +311,12 @@ class Client:
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
+            if 'result' not in data or len(data['result']) != 2:
+                print(colored("An error has occurred, aborting.", 'red'))
+                logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN "
+                                          "ALL MESSAGE: %r" % data)
+                return
+
             if data['result'][0]:
                 print(colored("All received messages: ", 'green'))
                 for message in data['result'][0]:
@@ -400,6 +413,12 @@ class Client:
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
+            if 'result' not in data or len(data['result']) != 2:
+                print(colored("An error has occurred, aborting.", 'red'))
+                logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN "
+                                          "RECEIVE MESSAGE: %r" % data)
+                return
+
             # Get sender and receiver public key and certificate
             sender_id = int(data['result'][0])
             if not self.get_resources([sender_id], data['resources']) \
@@ -410,17 +429,24 @@ class Client:
             print(colored("Message Sender ID: %d" % sender_id, 'green'))
 
             # Decipher message
-            src, dst, message, nonce, cipher_suite = \
-                self.secure.decipher_message_from_user(
-                    data['result'][1],
-                    self.secure.user_resources[sender_id]['certificate']
-                )
+            deciphered_message = self.secure.decipher_message_from_user(
+                data['result'][1],
+                self.secure.user_resources[sender_id]['certificate']
+            )
 
-            if 'error' in message:
-                print(colored("ERROR: " + message['error'], 'red'))
+            if 'error' in deciphered_message:
+                print(colored("ERROR: " + deciphered_message['error'], 'red'))
                 return
 
-            message = base64.b64decode(message.encode()).decode('utf-8')
+            # Check if sender_id is the same as the one saved on the message
+            # If not, print an error message
+            if sender_id != deciphered_message['src']:
+                print(colored("ERROR: Sender ID does not match SRC ID saved "
+                              "on the message body", 'red'))
+                return
+
+            message = base64.b64decode(
+                deciphered_message['msg'].encode()).decode('utf-8')
 
             print(colored("Message:\n" + message, 'green'))
 
@@ -429,10 +455,10 @@ class Client:
             # Send receipt
             self.receipt_message(
                 payload['msg'],
-                src,
-                dst,
+                deciphered_message['src'],
+                deciphered_message['dst'],
                 message,
-                nonce,
+                deciphered_message['nonce'],
                 int(data['result'][0]),
                 self.secure.user_resources[sender_id]['cipher_suite']
             )
@@ -502,12 +528,16 @@ class Client:
         if 'error' in data:
             print(colored("ERROR: " + data['error'], 'red'))
         else:
-            # Decipher original sent message from receipt box
-            src_id, dst_id, deciphered_message, nonce, cipher_suite = \
-                self.secure.decipher_message_from_user(data['result']['msg'])
+            if 'result' not in data or not set({'msg', 'receipts'}).issubset(
+                    set(data['result'].keys())):
+                print(colored("An error has occurred, aborting.", 'red'))
+                logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN "
+                                          "RECEIPT MESSAGE: %r" % data)
+                return
 
-            deciphered_message = base64.b64decode(
-                deciphered_message.encode()).decode('utf-8')
+            # Decipher original sent message from receipt box
+            deciphered_message = \
+                self.secure.decipher_message_from_user(data['result']['msg'])
 
             if 'error' in deciphered_message:
                 logger.log(logging.DEBUG, "Error deciphering message; "
@@ -517,26 +547,30 @@ class Client:
                 return
 
             # Get receiver public key and certificate
-            if not self.get_resources([dst_id], data['resources']) \
-                    or dst_id not in self.secure.user_resources:
+            if not self.get_resources([deciphered_message['dst']], data['resources']) \
+                    or deciphered_message['dst'] not in self.secure.user_resources:
                 logger.log(logging.DEBUG, "Cannot obtain receiver info; "
                                           "dropping message")
                 print(colored(
                     "ERROR: Receipt receiver does not have valid info", 'red'))
                 return
 
-            peer_cert = self.secure.user_resources[dst_id]['certificate']
+            peer_cert = self.secure.user_resources[
+                deciphered_message['dst']]['certificate']
             if peer_cert is None \
                     or not self.secure.certificates.validate_cert(peer_cert):
                 logger.log(logging.DEBUG, "Invalid certificate; "
                                           "dropping message")
                 print(colored("ERROR: Invalid peer certificate", 'red'))
 
+            message = base64.b64decode(
+                deciphered_message['msg'].encode()).decode('utf-8')
+
             receipts = self.secure.verify_secure_receipts(
-                src_id,
-                dst_id,
-                deciphered_message,
-                nonce,
+                deciphered_message['src'],
+                deciphered_message['dst'],
+                message,
+                deciphered_message['nonce'],
                 peer_cert,
                 data['result']['receipts']
             )
@@ -545,8 +579,7 @@ class Client:
                 print(colored("ERROR: " + receipts['error'], 'red'))
                 return
 
-            msg = deciphered_message
-            print(colored("Message:\n" + msg, 'green'))
+            print(colored("Message:\n" + message, 'green'))
             print(colored("\nAll receipts: ", 'green'))
             for receipt in receipts:
                 print(colored("\tDate: " +

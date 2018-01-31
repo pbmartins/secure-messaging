@@ -35,11 +35,11 @@ class ServerSecure:
         logger.log(logging.DEBUG, "INIT MESSAGE RECEIVED: %r" % payload)
 
         # Check all payload fields
-        if 'payload' not in payload or 'cipher_spec' not in payload \
-            or 'signature' not in payload or 'certificate' not in payload:
+        if not set({'payload', 'cipher_spec', 'signature',
+                    'certificate'}).issubset(set(payload.keys())):
             logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN INIT "
                                       "MESSAGE: %r" % payload)
-            return
+            return {'type': 'error', 'error': 'Invalid secure message format'}
 
         sent_payload = json.loads(base64.b64decode(
             payload['payload'].encode()).decode())
@@ -51,42 +51,38 @@ class ServerSecure:
             self.uuid).description['secdata'].encode()).decode())['cipher_spec']
         self.cipher_suite = get_cipher_suite(self.cipher_spec)
 
-        deciphered_payload = None
-
         # Verify signature and certificate validity to authenticate client
         peer_certificate = deserialize_certificate(payload['certificate'])
         if not self.certs.validate_cert(peer_certificate):
             logger.log(logging.DEBUG, "Invalid certificate; "
                                       "dropping message")
-            deciphered_payload = {'type': 'error',
-                                  'error': 'Invalid server certificate'}
-
-        if deciphered_payload is None:
-            try:
-                rsa_verify(
-                    peer_certificate.get_pubkey().to_cryptography_key(),
-                    base64.b64decode(payload['signature'].encode()),
-                    payload['payload'].encode(),
-                    self.cipher_suite['rsa']['sign']['cc']['sha'],
-                    self.cipher_suite['rsa']['sign']['cc']['padding']
-                )
-            except InvalidSignature:
-                logger.log(logging.DEBUG, "Invalid signature; "
-                                          "dropping message")
-                deciphered_payload = {'type': 'error',
-                                      'error': 'Invalid message signature'}
-
-        if deciphered_payload is None:
-            self.peer_pub_value = deserialize_key(
-                sent_payload['secdata']['dhpubvalue'])
-            self.peer_salt = base64.b64decode(
-                sent_payload['secdata']['salt'].encode())
-            self.number_of_hash_derivations = sent_payload['secdata']['index']
-            self.nonce = base64.b64decode(sent_payload['nonce'].encode())
-        else:
             self.uuid = None
             self.cipher_spec = None
             self.cipher_suite = None
+            return {'type': 'error', 'error': 'Invalid server certificate'}
+
+        try:
+            rsa_verify(
+                peer_certificate.get_pubkey().to_cryptography_key(),
+                base64.b64decode(payload['signature'].encode()),
+                payload['payload'].encode(),
+                self.cipher_suite['rsa']['sign']['cc']['sha'],
+                self.cipher_suite['rsa']['sign']['cc']['padding']
+            )
+        except InvalidSignature:
+            logger.log(logging.DEBUG, "Invalid signature; "
+                                      "dropping message")
+            self.uuid = None
+            self.cipher_spec = None
+            self.cipher_suite = None
+            return {'type': 'error', 'error': 'Invalid message signature'}
+
+        self.peer_pub_value = deserialize_key(
+            sent_payload['secdata']['dhpubvalue'])
+        self.peer_salt = base64.b64decode(
+            sent_payload['secdata']['salt'].encode())
+        self.number_of_hash_derivations = sent_payload['secdata']['index']
+        self.nonce = base64.b64decode(sent_payload['nonce'].encode())
 
         return {'type': 'init', 'uuid': self.uuid}
 
@@ -173,64 +169,58 @@ class ServerSecure:
     def uncapsulate_secure_message(self, message):
         logger.log(logging.DEBUG, "SECURE MESSAGE RECEIVED: %r" % message)
 
-        assert message['cipher_spec'] == self.cipher_spec
-
         # Check all payload fields
-        if 'payload' not in message or 'cipher_spec' not in message \
-                or 'mac' not in message:
+        if not set({'payload', 'cipher_spec', 'mac'}).issubset(
+                set(message.keys())):
             logger.log(logging.DEBUG, "ERROR: INCOMPLETE FIELDS IN SECURE "
                                       "MESSAGE: %r" % message)
-            return
+            return {'type': 'error', 'error': 'Invalid secure message format'}
 
-        return_payload = None
-        aes_key = None
+        assert message['cipher_spec'] == self.cipher_spec
 
         payload = json.loads(base64.b64decode(
             message['payload'].encode()).decode())
 
-        if return_payload is None:
-            # Derive AES key and decipher payload
-            self.number_of_hash_derivations = payload['secdata']['index']
+        # Derive AES key and decipher payload
+        self.number_of_hash_derivations = payload['secdata']['index']
 
-            self.peer_pub_value = deserialize_key(
-                payload['secdata']['dhpubvalue'])
-            self.peer_salt = base64.b64decode(
-                payload['secdata']['salt'].encode())
+        self.peer_pub_value = deserialize_key(
+            payload['secdata']['dhpubvalue'])
+        self.peer_salt = base64.b64decode(
+            payload['secdata']['salt'].encode())
 
-            aes_key = derive_key_from_ecdh(
-                self.priv_value,
-                self.peer_pub_value,
-                self.peer_salt,
-                self.salt,
-                self.cipher_suite['aes']['key_size'],
-                self.cipher_suite['sha']['size'],
-                self.number_of_hash_derivations,
-            )
+        aes_key = derive_key_from_ecdh(
+            self.priv_value,
+            self.peer_pub_value,
+            self.peer_salt,
+            self.salt,
+            self.cipher_suite['aes']['key_size'],
+            self.cipher_suite['sha']['size'],
+            self.number_of_hash_derivations,
+        )
 
-            # Verify MAC to make sure of message integrity
-            if not verify_mac(aes_key, message['payload'].encode() + self.prev_mac,
-                              base64.b64decode(message['mac'].encode()),
-                              self.cipher_suite['sha']['size']):
-                return_payload = \
-                    {'type': 'error', 'error': "Invalid MAC; dropping message"}
+        # Verify MAC to make sure of message integrity
+        if not verify_mac(aes_key, message['payload'].encode() + self.prev_mac,
+                          base64.b64decode(message['mac'].encode()),
+                          self.cipher_suite['sha']['size']):
+            return {'type': 'error', 'error': "Invalid MAC; dropping message"}
 
-        if return_payload is None:
-            self.prev_mac = message['mac'].encode()
+        self.prev_mac = message['mac'].encode()
 
-            # Decipher payload
-            aes_cipher, aes_iv = generate_aes_cipher(
-                aes_key,
-                self.cipher_suite['aes']['mode'],
-                base64.b64decode(payload['secdata']['iv'].encode())
-            )
+        # Decipher payload
+        aes_cipher, aes_iv = generate_aes_cipher(
+            aes_key,
+            self.cipher_suite['aes']['mode'],
+            base64.b64decode(payload['secdata']['iv'].encode())
+        )
 
-            return_payload = payload['message']
+        return_payload = payload['message']
 
-            # Decipher message, if present
-            if 'message' in payload:
-                decryptor = aes_cipher.decryptor()
-                return_payload = decryptor.update(base64.b64decode(
-                    payload['message'].encode())) + decryptor.finalize()
-                return_payload = json.loads(return_payload.decode())
+        # Decipher message, if present
+        if 'message' in payload:
+            decryptor = aes_cipher.decryptor()
+            return_payload = decryptor.update(base64.b64decode(
+                payload['message'].encode())) + decryptor.finalize()
+            return_payload = json.loads(return_payload.decode())
 
         return return_payload
