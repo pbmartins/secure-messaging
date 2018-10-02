@@ -1,8 +1,5 @@
 #!/bin/bash
 
-rm -rf Client/keys
-rm -rf Client/certs/users
+rm -rf Client/{keys,certs/users}
 
-rm -rf Server/mboxes
-rm -rf Server/receipts
-rm -rf Server/certs/users
+rm -rf Server/{mboxes,receipts,certs/users}
